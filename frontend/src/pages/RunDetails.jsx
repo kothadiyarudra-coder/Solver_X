@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, XCircle, Clock, Sparkles, GitCompare, Activity } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, XCircle, Clock, Sparkles, GitCompare, Activity, Radio } from 'lucide-react';
 import EventTimeline from '../components/EventTimeline';
 import DiagnosisCard from '../components/DiagnosisCard';
 import { api } from '../services/api';
+import { socket } from '../services/socket';
 
 export default function RunDetails() {
   const { runId } = useParams();
@@ -13,22 +14,45 @@ export default function RunDetails() {
   const [loading, setLoading] = useState(true);
   const [diagnosing, setDiagnosing] = useState(false);
 
-  useEffect(() => {
-    async function loadRunDetails() {
-      setLoading(true);
-      const [runData, eventData] = await Promise.all([
-        api.getRun(runId),
-        api.getRunEvents(runId),
-      ]);
-      setRun(runData);
-      setEvents(eventData);
-      if (runData?.diagnosis) {
-        setDiagnosis(runData.diagnosis);
-      }
-      setLoading(false);
+  const loadRunDetails = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    const [runData, eventData] = await Promise.all([
+      api.getRun(runId),
+      api.getRunEvents(runId),
+    ]);
+    setRun(runData);
+    setEvents(eventData);
+    if (runData?.diagnosis) {
+      setDiagnosis(runData.diagnosis);
     }
-    loadRunDetails();
+    if (!isSilent) setLoading(false);
   }, [runId]);
+
+  useEffect(() => {
+    loadRunDetails();
+
+    // Listen to real-time events specific to this run
+    const onRunEvent = (newEvent) => {
+      setEvents((prev) => {
+        // Prevent duplicate event UI appending
+        if (prev.some((e) => e.eventId === newEvent.eventId)) return prev;
+        return [...prev, newEvent];
+      });
+      loadRunDetails(true); // update run counters
+    };
+
+    socket.on(`event_${runId}`, onRunEvent);
+    socket.on('run_updated', (updatedRun) => {
+      if (updatedRun.runId === runId) {
+        setRun(updatedRun);
+      }
+    });
+
+    return () => {
+      socket.off(`event_${runId}`, onRunEvent);
+      socket.off('run_updated');
+    };
+  }, [runId, loadRunDetails]);
 
   const handleRunDiagnosis = async () => {
     setDiagnosing(true);
@@ -75,7 +99,7 @@ export default function RunDetails() {
 
         <div className="flex items-center gap-3">
           <Link
-            to={`/compare?run1=${runId}&run2=run-success-01`}
+            to={`/compare?run1=run-6cd762a5&run2=${runId}`}
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 text-xs font-medium transition"
           >
             <GitCompare className="w-4 h-4 text-sky-400" />
@@ -128,6 +152,9 @@ export default function RunDetails() {
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
               <Activity className="w-4 h-4 text-sky-400" />
               Event Execution Timeline
+              <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                <Radio className="w-2.5 h-2.5 animate-pulse" /> Live Stream
+              </span>
             </h2>
             <p className="text-xs text-slate-400">Sequential events tracked by SDK with inputs and outputs</p>
           </div>
@@ -138,4 +165,3 @@ export default function RunDetails() {
     </div>
   );
 }
-
