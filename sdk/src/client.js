@@ -3,7 +3,7 @@ const { generateRunId, generateEventId } = require('./ids');
 
 class DevTraceClient {
   constructor(config = {}) {
-    this.baseUrl = config.baseUrl || process.env.DEVTRACE_API_URL || 'http://localhost:5000/api';
+    this.baseUrl = config.baseUrl || process.env.DEVTRACE_API_URL || 'http://localhost:5001/api';
     this.projectId = config.projectId || process.env.DEVTRACE_PROJECT_ID || 'default-project';
     this.timeout = config.timeout || 5000;
     this.silenceErrors = config.silenceErrors !== false; // Don't crash caller if backend down

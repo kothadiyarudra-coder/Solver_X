@@ -2,7 +2,7 @@ require('dotenv').config();
 const axios = require('axios');
 
 async function testDuplicateEventScenario() {
-  const baseUrl = process.env.DEVTRACE_API_URL || 'http://localhost:5000/api';
+  const baseUrl = process.env.DEVTRACE_API_URL || 'http://localhost:5001/api';
   console.log('=== Scenario C: Duplicate Event Protection ===\n');
 
   const duplicateEventId = `dup-test-${Date.now()}`;

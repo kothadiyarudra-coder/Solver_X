@@ -61,11 +61,11 @@ app.get('/health', (req, res) => {
 // Global Error Handler
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // Connect Database and Start Server
 connectDB().then(() => {
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
   });
 });
