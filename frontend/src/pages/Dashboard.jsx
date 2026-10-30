@@ -1,23 +1,40 @@
-import React, { useEffect, useState } from 'react';
-import { Activity, CheckCircle2, XCircle, Clock, ArrowUpRight, BarChart2 } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Activity, CheckCircle2, XCircle, Clock, ArrowUpRight, BarChart2, Radio } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import StatCard from '../components/StatCard';
 import RunTable from '../components/RunTable';
 import { api } from '../services/api';
+import { socket } from '../services/socket';
 
 export default function Dashboard() {
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      const data = await api.getAnalytics('demo-project');
-      setAnalytics(data);
-      setLoading(false);
-    }
-    loadData();
+  const loadData = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    const data = await api.getAnalytics('demo-project');
+    setAnalytics(data);
+    if (!isSilent) setLoading(false);
   }, []);
+
+  useEffect(() => {
+    loadData();
+
+    // Real-time live update handlers via Socket.IO
+    const onLiveUpdate = () => {
+      loadData(true); // silent refresh
+    };
+
+    socket.on('run_started', onLiveUpdate);
+    socket.on('run_updated', onLiveUpdate);
+    socket.on('new_event', onLiveUpdate);
+
+    return () => {
+      socket.off('run_started', onLiveUpdate);
+      socket.off('run_updated', onLiveUpdate);
+      socket.off('new_event', onLiveUpdate);
+    };
+  }, [loadData]);
 
   if (loading || !analytics) {
     return (
@@ -39,7 +56,12 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Project Overview</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            Project Overview
+            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+              <Radio className="w-2.5 h-2.5 animate-pulse" /> Live
+            </span>
+          </h1>
           <p className="text-sm text-slate-400 mt-1">
             Real-time observability and evidence-based diagnosis for application workflows.
           </p>
@@ -134,15 +156,15 @@ export default function Dashboard() {
             <div className="mt-4 space-y-3">
               <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 text-xs">
                 <p className="font-semibold text-emerald-400">Scenario A: Normal Flow</p>
-                <code className="text-[11px] text-slate-400 block mt-1">npm run --prefix sample-app success</code>
+                <code className="text-[11px] text-slate-400 block mt-1">node sample-app/success.js</code>
               </div>
               <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 text-xs">
                 <p className="font-semibold text-rose-400">Scenario B: Failure Simulation</p>
-                <code className="text-[11px] text-slate-400 block mt-1">npm run --prefix sample-app failure</code>
+                <code className="text-[11px] text-slate-400 block mt-1">node sample-app/failure.js</code>
               </div>
               <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 text-xs">
                 <p className="font-semibold text-sky-400">Scenario C: Duplicate Check</p>
-                <code className="text-[11px] text-slate-400 block mt-1">npm run --prefix sample-app duplicate</code>
+                <code className="text-[11px] text-slate-400 block mt-1">node sample-app/duplicate-event.js</code>
               </div>
             </div>
           </div>
@@ -162,4 +184,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

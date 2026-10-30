@@ -25,6 +25,7 @@ function sanitizeData(obj) {
 
 /**
  * Rule-based fallback diagnosis when LLM key is absent or offline
+ * Ensures the core debugging tool NEVER breaks or hangs (README Section 2 Deliverable).
  */
 function generateFallbackDiagnosis(run, events) {
   const failedEvents = events.filter((e) => e.status === 'failed');
@@ -37,6 +38,7 @@ function generateFallbackDiagnosis(run, events) {
       suggestedChecks: [
         'Check application log levels for untracked silent warnings.',
         'Verify timeout settings for long-running operations.',
+        'Review application return codes and external API responses.',
       ],
       confidence: 'medium',
     };
@@ -44,20 +46,21 @@ function generateFallbackDiagnosis(run, events) {
 
   const firstFail = failedEvents[0];
   const payloadStr = JSON.stringify(firstFail.payload || {});
+  const failMessage = firstFail.payload?.message || firstFail.payload?.error || `Failure in event '${firstFail.type}'`;
 
   return {
-    summary: `Execution failed at step '${firstFail.type}' (${firstFail.eventId}).`,
-    rootCause: firstFail.payload?.message || `Failure in event type '${firstFail.type}'. Details: ${payloadStr}`,
+    summary: `Execution failed at step '${firstFail.type}' (Event ID: ${firstFail.eventId}).`,
+    rootCause: failMessage,
     evidence: [
       {
         eventId: firstFail.eventId,
-        observation: `Event type '${firstFail.type}' reported status: failed after ${firstFail.durationMs || 0}ms.`,
+        observation: `Event type '${firstFail.type}' reported status 'failed' after ${firstFail.durationMs || 0}ms. Details: ${payloadStr}`,
       },
     ],
     suggestedChecks: [
       `Inspect parameters and inputs provided to '${firstFail.type}'.`,
       'Check external service / database availability and timeout configurations.',
-      'Review error stack trace in the event payload.',
+      'Review error stack trace and network connectivity.',
     ],
     confidence: 'high',
   };
@@ -69,17 +72,17 @@ function generateFallbackDiagnosis(run, events) {
 async function generateDiagnosis(runId) {
   const run = await Run.findOne({ runId }).lean();
   if (!run) {
-    throw { statusCode: 404, code: 'RUN_NOT_FOUND', message: `Run ${runId} not found.` };
+    throw { statusCode: 404, code: 'RUN_NOT_FOUND', message: `Run '${runId}' not found.` };
   }
 
   const events = await Event.find({ runId }).sort({ timestamp: 1 }).lean();
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
 
+  // If no API key or placeholder, use the heuristic evidence diagnosis directly
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    console.log('[Gemini Service] No valid GEMINI_API_KEY found, using rule-based evidence diagnosis.');
+    console.log('[Gemini Service] No valid GEMINI_API_KEY configured, using heuristic evidence diagnosis.');
     const fallback = generateFallbackDiagnosis(run, events);
-    // Cache diagnosis on run
     await Run.updateOne({ runId }, { diagnosis: fallback });
     return fallback;
   }
@@ -131,14 +134,17 @@ Event history:
 ${JSON.stringify(sanitizedEvents, null, 2)}`;
 
     const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    const parsed = JSON.parse(text);
+    const rawText = result.response.text();
+    
+    // Strip markdown code fences if present (e.g. ```json ... ```)
+    const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanJson);
 
-    // Save diagnosis to Run
+    // Save diagnosis to Run in MongoDB
     await Run.updateOne({ runId }, { diagnosis: parsed });
     return parsed;
   } catch (error) {
-    console.error('[Gemini Service Error]', error.message);
+    console.error('[Gemini Service Warning]', error.message);
     // Graceful fallback: LLM failure never breaks debugging
     const fallback = generateFallbackDiagnosis(run, events);
     await Run.updateOne({ runId }, { diagnosis: fallback });
@@ -149,4 +155,3 @@ ${JSON.stringify(sanitizedEvents, null, 2)}`;
 module.exports = {
   generateDiagnosis,
 };
-

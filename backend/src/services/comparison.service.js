@@ -2,8 +2,8 @@ const Run = require('../models/Run');
 const Event = require('../models/Event');
 
 /**
- * Compare two runs (e.g. one successful run and one failed run)
- * Analyzes event sequences, timing differences, payload changes, and failure point.
+ * Compare two runs (e.g. baseline successful run vs target failed run)
+ * Analyzes event sequences, timing differences, status divergences, and failure points.
  */
 async function compareRuns(runId1, runId2) {
   const [run1, run2] = await Promise.all([
@@ -12,10 +12,13 @@ async function compareRuns(runId1, runId2) {
   ]);
 
   if (!run1 || !run2) {
+    const missing = [];
+    if (!run1) missing.push(runId1);
+    if (!run2) missing.push(runId2);
     throw {
       statusCode: 404,
       code: 'RUN_NOT_FOUND',
-      message: `One or both runs (${runId1}, ${runId2}) could not be found.`,
+      message: `The following run(s) could not be found: ${missing.join(', ')}`,
     };
   }
 
@@ -35,6 +38,7 @@ async function compareRuns(runId1, runId2) {
   // Compare event sequences side by side
   const maxEvents = Math.max(events1.length, events2.length);
   const sequenceComparison = [];
+  let firstDivergenceStep = null;
 
   for (let i = 0; i < maxEvents; i++) {
     const e1 = events1[i] || null;
@@ -49,19 +53,35 @@ async function compareRuns(runId1, runId2) {
         difference = 'Identical event type and status';
       } else if (e1.type === e2.type) {
         difference = `Status diverged: '${e1.status}' vs '${e2.status}'`;
+        if (!firstDivergenceStep) firstDivergenceStep = i + 1;
       } else {
-        difference = `Different types: '${e1.type}' vs '${e2.type}'`;
+        difference = `Different step types: '${e1.type}' vs '${e2.type}'`;
+        if (!firstDivergenceStep) firstDivergenceStep = i + 1;
       }
     } else if (e1 && !e2) {
-      difference = `Step present in ${runId1} but missing in ${runId2}`;
+      difference = `Step present in ${runId1} but omitted/halted in ${runId2}`;
+      if (!firstDivergenceStep) firstDivergenceStep = i + 1;
     } else if (!e1 && e2) {
-      difference = `Step present in ${runId2} but missing in ${runId1}`;
+      difference = `Extra step present in ${runId2} but not in ${runId1}`;
+      if (!firstDivergenceStep) firstDivergenceStep = i + 1;
     }
 
     sequenceComparison.push({
       stepIndex: i + 1,
-      run1Event: e1 ? { eventId: e1.eventId, type: e1.type, status: e1.status, durationMs: e1.durationMs } : null,
-      run2Event: e2 ? { eventId: e2.eventId, type: e2.type, status: e2.status, durationMs: e2.durationMs } : null,
+      run1Event: e1 ? {
+        eventId: e1.eventId,
+        type: e1.type,
+        status: e1.status,
+        durationMs: e1.durationMs,
+        payloadSummary: summarizePayload(e1.payload),
+      } : null,
+      run2Event: e2 ? {
+        eventId: e2.eventId,
+        type: e2.type,
+        status: e2.status,
+        durationMs: e2.durationMs,
+        payloadSummary: summarizePayload(e2.payload),
+      } : null,
       match,
       difference,
     });
@@ -70,30 +90,53 @@ async function compareRuns(runId1, runId2) {
   return {
     run1: {
       runId: run1.runId,
+      projectId: run1.projectId,
       name: run1.name,
       status: run1.status,
       durationMs: run1.durationMs,
       totalEvents: events1.length,
-      firstFailure: firstFailureRun1,
+      firstFailure: firstFailureRun1 ? {
+        eventId: firstFailureRun1.eventId,
+        type: firstFailureRun1.type,
+        message: firstFailureRun1.payload?.message || null,
+      } : null,
     },
     run2: {
       runId: run2.runId,
+      projectId: run2.projectId,
       name: run2.name,
       status: run2.status,
       durationMs: run2.durationMs,
       totalEvents: events2.length,
-      firstFailure: firstFailureRun2,
+      firstFailure: firstFailureRun2 ? {
+        eventId: firstFailureRun2.eventId,
+        type: firstFailureRun2.type,
+        message: firstFailureRun2.payload?.message || null,
+      } : null,
     },
     summary: {
       durationDifferenceMs: durationDiffMs,
       eventCountDifference: eventCountDiff,
       hasFailureDivergence: run1.status !== run2.status,
+      firstDivergenceStep,
     },
     sequenceComparison,
   };
 }
 
+/**
+ * Helper to produce a 1-line summary of payload for quick diffs
+ */
+function summarizePayload(payload) {
+  if (!payload || typeof payload !== 'object') return {};
+  const summary = {};
+  if (payload.message) summary.message = payload.message;
+  if (payload.operation) summary.operation = payload.operation;
+  if (payload.endpoint) summary.endpoint = payload.endpoint;
+  if (payload.model) summary.model = payload.model;
+  return Object.keys(summary).length > 0 ? summary : payload;
+}
+
 module.exports = {
   compareRuns,
 };
-
