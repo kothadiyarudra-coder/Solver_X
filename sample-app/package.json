@@ -1,0 +1,16 @@
+{
+  "name": "devtrace-sample-app",
+  "version": "1.0.0",
+  "description": "Sample application demonstrating DevTrace SDK tracking scenarios",
+  "private": true,
+  "scripts": {
+    "success": "node success.js",
+    "failure": "node failure.js",
+    "duplicate": "node duplicate-event.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "devtrace-sdk": "file:../sdk"
+  }
+}
+
