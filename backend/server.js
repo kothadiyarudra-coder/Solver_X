@@ -1,4 +1,8 @@
+const path = require('path');
+// Load .env from project root or backend folder
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 require('dotenv').config();
+
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
@@ -67,4 +71,3 @@ connectDB().then(() => {
 });
 
 module.exports = { app, server };
-
