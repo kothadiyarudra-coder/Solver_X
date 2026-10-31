@@ -53,7 +53,26 @@ export default function Dashboard() {
       setRuns(Array.isArray(runsData) ? runsData : []);
 
       // Group timeseries for execution trend chart
-      const timeseries = Array.isArray(timeseriesRes?.points) ? timeseriesRes.points : Array.isArray(timeseriesRes) ? timeseriesRes : [];
+      let timeseries = Array.isArray(timeseriesRes?.points) ? timeseriesRes.points : Array.isArray(timeseriesRes) ? timeseriesRes : [];
+      if (timeseries.length === 0) {
+        const now = Date.now();
+        timeseries = [];
+        for (let i = 5; i >= 0; i--) {
+          const t = now - i * 5 * 60 * 1000;
+          const d = new Date(t);
+          timeseries.push({
+            time: `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`,
+            success: 0,
+            failed: 0,
+          });
+        }
+      } else {
+        timeseries = timeseries.map((t) => ({
+          ...t,
+          success: Number(t.success || 0),
+          failed: Number(t.failed || t.errors || 0),
+        }));
+      }
       setTrendData(timeseries);
     } catch (err) {
       console.error("[Dashboard] Load failed:", err);
@@ -74,6 +93,8 @@ export default function Dashboard() {
       socket.on('run_started', onLiveUpdate);
       socket.on('run_updated', onLiveUpdate);
       socket.on('new_event', onLiveUpdate);
+      socket.on('batch_events', onLiveUpdate);
+      socket.on('code_errors_synced', onLiveUpdate);
     }
 
     return () => {
@@ -81,6 +102,8 @@ export default function Dashboard() {
         socket.off('run_started', onLiveUpdate);
         socket.off('run_updated', onLiveUpdate);
         socket.off('new_event', onLiveUpdate);
+        socket.off('batch_events', onLiveUpdate);
+        socket.off('code_errors_synced', onLiveUpdate);
       }
     };
   }, [loadData]);

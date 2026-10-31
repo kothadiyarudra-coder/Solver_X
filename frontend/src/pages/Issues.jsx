@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { api } from "../services/api";
 import { useProject } from "../context/ProjectContext";
+import { socket } from "../services/socket";
 
 export default function Issues() {
   const navigate = useNavigate();
@@ -23,8 +24,8 @@ export default function Issues() {
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchIssues = async () => {
-    setLoading(true);
+  const fetchIssues = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const errorData = await api.getErrorEvents({
         projectId: selectedProject !== "all" ? selectedProject : undefined,
@@ -74,12 +75,35 @@ export default function Issues() {
     } catch (err) {
       console.error("[Issues] Failed to fetch issues:", err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchIssues();
+    fetchIssues(false);
+
+    // Real-time live update handlers via Socket.IO
+    const onLiveUpdate = () => {
+      fetchIssues(true); // Silent real-time refresh
+    };
+
+    if (socket) {
+      socket.on("new_event", onLiveUpdate);
+      socket.on("batch_events", onLiveUpdate);
+      socket.on("code_errors_synced", onLiveUpdate);
+      socket.on("run_started", onLiveUpdate);
+      socket.on("run_updated", onLiveUpdate);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off("new_event", onLiveUpdate);
+        socket.off("batch_events", onLiveUpdate);
+        socket.off("code_errors_synced", onLiveUpdate);
+        socket.off("run_started", onLiveUpdate);
+        socket.off("run_updated", onLiveUpdate);
+      }
+    };
   }, [selectedProject]);
 
   const filteredIssues = issues.filter((issue) => {

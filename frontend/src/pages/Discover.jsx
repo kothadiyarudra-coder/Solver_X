@@ -23,6 +23,7 @@ import {
 } from "recharts";
 import { api } from "../services/api";
 import { useProject } from "../context/ProjectContext";
+import { socket } from "../services/socket";
 
 const AREA_COLORS = [
   "#E1567C",
@@ -43,8 +44,8 @@ export default function Discover() {
   const [chartData, setChartData] = useState([]);
   const [errorCategories, setErrorCategories] = useState([]);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const pId = selectedProject !== "all" ? selectedProject : undefined;
       const [errorData, timeseriesRes] = await Promise.all([
@@ -70,17 +71,25 @@ export default function Discover() {
         timeseriesRes.forEach((item) => {
           if (!item) return;
           const hour = (typeof item._id === "object" && item._id?.hour) || (typeof item.time === "string" ? item.time : "00:00");
-          if (!hourMap[hour]) hourMap[hour] = { time: hour };
+          if (!hourMap[hour]) hourMap[hour] = { time: hour, failed: 0 };
           const rawKey = typeof item._id === "object" ? item._id?.type : item.type;
           const key = typeof rawKey === "string" ? rawKey : "error";
           typesSet.add(key);
-          hourMap[hour][key] = (hourMap[hour][key] || 0) + (item.errors || item.count || 0);
+          const errCount = item.errors || item.count || 0;
+          hourMap[hour][key] = (hourMap[hour][key] || 0) + errCount;
+          hourMap[hour].failed = (hourMap[hour].failed || 0) + errCount;
         });
         points = Object.values(hourMap);
         categories = Array.from(typesSet);
       }
 
-      // If categories is empty, extract primitive keys from points
+      // Ensure every point has a failed / error count
+      points = points.map((pt) => ({
+        ...pt,
+        failed: Number(pt.failed || pt.errors || 0),
+      }));
+
+      // If categories is empty, extract primitive keys from points or fallback to 'failed'
       if (categories.length === 0 && points.length > 0) {
         const catSet = new Set();
         points.forEach((p) => {
@@ -93,7 +102,7 @@ export default function Discover() {
               k !== "time" &&
               k !== "timestamp" &&
               k !== "success" &&
-              k !== "failed" &&
+              k !== "total" &&
               !k.endsWith("_errors") &&
               typeof p[k] !== "object"
             ) {
@@ -104,17 +113,45 @@ export default function Discover() {
         categories = Array.from(catSet);
       }
 
-      setErrorCategories(categories.filter((c) => typeof c === "string" && c !== "_id"));
+      let cleanCategories = categories.filter((c) => typeof c === "string" && c !== "_id");
+      if (cleanCategories.length === 0) {
+        cleanCategories = ["failed"];
+      }
+
+      setErrorCategories(cleanCategories);
       setChartData(points);
     } catch (err) {
       console.error("[Discover] Failed to fetch telemetry:", err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(false);
+
+    // Real-time live update handler via Socket.IO
+    const onLiveUpdate = () => {
+      fetchData(true); // Silent real-time refresh
+    };
+
+    if (socket) {
+      socket.on("new_event", onLiveUpdate);
+      socket.on("batch_events", onLiveUpdate);
+      socket.on("code_errors_synced", onLiveUpdate);
+      socket.on("run_started", onLiveUpdate);
+      socket.on("run_updated", onLiveUpdate);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off("new_event", onLiveUpdate);
+        socket.off("batch_events", onLiveUpdate);
+        socket.off("code_errors_synced", onLiveUpdate);
+        socket.off("run_started", onLiveUpdate);
+        socket.off("run_updated", onLiveUpdate);
+      }
+    };
   }, [interval, selectedProject]);
 
   const filteredErrors = errorList.filter((item) => {

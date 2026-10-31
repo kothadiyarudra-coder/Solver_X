@@ -171,6 +171,15 @@ const createBatchEvents = async (req, res, next) => {
       }
     }
 
+    const io = req.app.get('io') || global.io;
+    if (io && inserted.length > 0) {
+      io.emit('batch_events', { count: inserted.length, sample: inserted[inserted.length - 1] });
+      io.emit('new_event', inserted[inserted.length - 1]);
+      inserted.forEach((doc) => {
+        io.emit(`event_${doc.runId}`, doc);
+      });
+    }
+
     return res.status(201).json({
       success: true,
       data: {
@@ -362,7 +371,7 @@ const getPerformanceStats = async (req, res, next) => {
       for (let t = startAligned; t <= endAligned; t += stepMs) {
         const d = new Date(t);
         const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-        buckets.set(t, { time: timeStr, timestamp: t, durations: [] });
+        buckets.set(t, { time: timeStr, timestamp: t, durations: [], errors: 0, failed: 0 });
       }
 
       durations.forEach((e) => {
@@ -372,10 +381,14 @@ const getPerformanceStats = async (req, res, next) => {
         if (!b) {
           const d = new Date(bTime);
           const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-          b = { time: timeStr, timestamp: bTime, durations: [] };
+          b = { time: timeStr, timestamp: bTime, durations: [], errors: 0, failed: 0 };
           buckets.set(bTime, b);
         }
         b.durations.push(e.durationMs || 0);
+        if (e.status === 'failed') {
+          b.errors++;
+          b.failed++;
+        }
       });
 
       timeline = Array.from(buckets.entries())
@@ -391,8 +404,31 @@ const getPerformanceStats = async (req, res, next) => {
             p75: c > 0 ? b.durations[Math.floor(c * 0.75)] : p75,
             p95: c > 0 ? b.durations[Math.floor(c * 0.95)] : p95,
             avg: c > 0 ? Math.round(b.durations.reduce((s, v) => s + v, 0) / c) : avg,
+            errors: b.errors || 0,
+            failed: b.failed || 0,
+            errorRate: c > 0 ? Number(((b.errors / c) * 100).toFixed(1)) : 0,
           };
         });
+    } else {
+      const now = Date.now();
+      timeline = [];
+      for (let i = 5; i >= 0; i--) {
+        const t = now - i * stepMs;
+        const d = new Date(t);
+        const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+        timeline.push({
+          time: timeStr,
+          timestamp: t,
+          count: 0,
+          p50: 0,
+          p75: 0,
+          p95: 0,
+          avg: 0,
+          errors: 0,
+          failed: 0,
+          errorRate: 0,
+        });
+      }
     }
 
     const operationAgg = await Event.aggregate([
@@ -466,15 +502,6 @@ const getEventTimeseries = async (req, res, next) => {
       .limit(Number(limit))
       .lean();
 
-    if (events.length === 0) {
-      return res.json({
-        success: true,
-        data: [],
-        categories: [],
-        message: 'No events found for timeseries',
-      });
-    }
-
     // Determine interval step in minutes
     let stepMinutes = 5;
     if (interval === '1m') stepMinutes = 1;
@@ -484,6 +511,31 @@ const getEventTimeseries = async (req, res, next) => {
     else if (interval === '1h') stepMinutes = 60;
 
     const stepMs = stepMinutes * 60 * 1000;
+
+    if (events.length === 0) {
+      const now = Date.now();
+      const emptyBuckets = [];
+      for (let i = 5; i >= 0; i--) {
+        const t = now - i * stepMs;
+        const d = new Date(t);
+        const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+        emptyBuckets.push({
+          time: timeStr,
+          timestamp: t,
+          success: 0,
+          failed: 0,
+          errors: 0,
+          total: 0,
+        });
+      }
+      return res.json({
+        success: true,
+        data: emptyBuckets,
+        categories: ['errors'],
+        interval: `${stepMinutes}m`,
+        message: 'No events found, generated baseline timeline',
+      });
+    }
 
     // Collect all distinct types
     const typesSet = new Set();
@@ -510,7 +562,7 @@ const getEventTimeseries = async (req, res, next) => {
         initialTypes[cat] = 0;
         initialTypes[`${cat}_errors`] = 0;
       });
-      bucketMap.set(t, { time: timeStr, timestamp: t, success: 0, failed: 0, ...initialTypes });
+      bucketMap.set(t, { time: timeStr, timestamp: t, total: 0, success: 0, failed: 0, errors: 0, ...initialTypes });
     }
 
     // Populate events into buckets
@@ -526,15 +578,17 @@ const getEventTimeseries = async (req, res, next) => {
           initialTypes[cat] = 0;
           initialTypes[`${cat}_errors`] = 0;
         });
-        bucket = { time: timeStr, timestamp: bucketTime, success: 0, failed: 0, ...initialTypes };
+        bucket = { time: timeStr, timestamp: bucketTime, total: 0, success: 0, failed: 0, errors: 0, ...initialTypes };
         bucketMap.set(bucketTime, bucket);
       }
 
       const type = ev.type || 'general';
       bucket[type] = (bucket[type] || 0) + 1;
+      bucket.total = (bucket.total || 0) + 1;
       if (ev.status === 'failed') {
         bucket[`${type}_errors`] = (bucket[`${type}_errors`] || 0) + 1;
         bucket.failed = (bucket.failed || 0) + 1;
+        bucket.errors = (bucket.errors || 0) + 1;
       } else {
         bucket.success = (bucket.success || 0) + 1;
       }

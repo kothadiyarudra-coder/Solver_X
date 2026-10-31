@@ -25,6 +25,7 @@ import {
 } from "recharts";
 import { api } from "../services/api";
 import { useProject } from "../context/ProjectContext";
+import { socket } from "../services/socket";
 
 export default function Performance() {
   const navigate = useNavigate();
@@ -37,8 +38,8 @@ export default function Performance() {
   const [transactions, setTransactions] = useState([]);
   const [latencyData, setLatencyData] = useState([]);
 
-  const loadPerformance = async () => {
-    setLoading(true);
+  const loadPerformance = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const pId = selectedProject !== "all" ? selectedProject : undefined;
       const perfData = await api.getPerformanceStats({ projectId: pId, interval });
@@ -64,18 +65,20 @@ export default function Performance() {
           const bucketTime = Math.floor(date.getTime() / stepMs) * stepMs;
           const d = new Date(bucketTime);
           const timeStr = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-          if (!buckets[timeStr]) buckets[timeStr] = [];
-          buckets[timeStr].push(ev.durationMs || 0);
+          if (!buckets[timeStr]) buckets[timeStr] = { durations: [], errors: 0 };
+          buckets[timeStr].durations.push(ev.durationMs || 0);
+          if (ev.status === "failed") buckets[timeStr].errors++;
         });
 
-        const latencyPoints = Object.entries(buckets).map(([timeStr, durations]) => {
-          durations.sort((a, b) => a - b);
-          const count = durations.length;
+        const latencyPoints = Object.entries(buckets).map(([timeStr, b]) => {
+          b.durations.sort((a, b) => a - b);
+          const count = b.durations.length;
           return {
             time: timeStr,
-            p50: durations[Math.floor(count * 0.5)] || 0,
-            p75: durations[Math.floor(count * 0.75)] || 0,
-            p95: durations[Math.floor(count * 0.95)] || 0,
+            p50: b.durations[Math.floor(count * 0.5)] || 0,
+            p75: b.durations[Math.floor(count * 0.75)] || 0,
+            p95: b.durations[Math.floor(count * 0.95)] || 0,
+            errors: b.errors || 0,
           };
         });
 
@@ -84,12 +87,35 @@ export default function Performance() {
     } catch (err) {
       console.error("[Performance] Load failed:", err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadPerformance();
+    loadPerformance(false);
+
+    // Real-time live update handler via Socket.IO
+    const onLiveUpdate = () => {
+      loadPerformance(true); // Silent real-time refresh
+    };
+
+    if (socket) {
+      socket.on("new_event", onLiveUpdate);
+      socket.on("batch_events", onLiveUpdate);
+      socket.on("code_errors_synced", onLiveUpdate);
+      socket.on("run_started", onLiveUpdate);
+      socket.on("run_updated", onLiveUpdate);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off("new_event", onLiveUpdate);
+        socket.off("batch_events", onLiveUpdate);
+        socket.off("code_errors_synced", onLiveUpdate);
+        socket.off("run_started", onLiveUpdate);
+        socket.off("run_updated", onLiveUpdate);
+      }
+    };
   }, [interval, selectedProject]);
 
   const filteredTransactions = transactions.filter((tx) => {
@@ -202,22 +228,25 @@ export default function Performance() {
         </div>
       </div>
 
-      {/* Latency Percentile Chart */}
+      {/* Latency & Error Timeline Chart */}
       <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-white">Duration Percentiles (P50, P75, P95)</h2>
-            <p className="text-xs text-slate-400">Calculated dynamically from real events</p>
+            <h2 className="text-base font-semibold text-white">Latency & Error Spikes Timeline</h2>
+            <p className="text-xs text-slate-400">Real-time latency percentiles and failure events</p>
           </div>
-          <div className="flex items-center gap-4 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-purple-500" /> P50 (Median)
+              <span className="h-2.5 w-2.5 rounded-sm bg-purple-500" /> P50 Median
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-sm bg-indigo-400" /> P75
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-amber-400" /> P95 (Tail)
+              <span className="h-2.5 w-2.5 rounded-sm bg-amber-400" /> P95 Tail
+            </span>
+            <span className="flex items-center gap-1.5 font-semibold text-rose-400">
+              <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" /> Error Spikes
             </span>
           </div>
         </div>
@@ -243,10 +272,14 @@ export default function Performance() {
                   <stop offset="0%" stopColor="#A855F7" stopOpacity={0.4} />
                   <stop offset="100%" stopColor="#A855F7" stopOpacity={0.02} />
                 </linearGradient>
+                <linearGradient id="errorGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#F43F5E" stopOpacity={0.7} />
+                  <stop offset="100%" stopColor="#F43F5E" stopOpacity={0.05} />
+                </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#302345" />
               <XAxis dataKey="time" stroke="#6b7280" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} unit="ms" />
+              <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "#241738",
@@ -258,6 +291,7 @@ export default function Performance() {
               <Area
                 type="monotone"
                 dataKey="p95"
+                name="P95 Latency (ms)"
                 stroke="#F59E0B"
                 strokeWidth={2}
                 fill="url(#p95Grad)"
@@ -265,6 +299,7 @@ export default function Performance() {
               <Area
                 type="monotone"
                 dataKey="p75"
+                name="P75 Latency (ms)"
                 stroke="#818CF8"
                 strokeWidth={2}
                 fill="url(#p75Grad)"
@@ -272,9 +307,18 @@ export default function Performance() {
               <Area
                 type="monotone"
                 dataKey="p50"
+                name="P50 Latency (ms)"
                 stroke="#A855F7"
                 strokeWidth={2}
                 fill="url(#p50Grad)"
+              />
+              <Area
+                type="monotone"
+                dataKey="errors"
+                name="Error Count"
+                stroke="#F43F5E"
+                strokeWidth={2.5}
+                fill="url(#errorGrad)"
               />
             </AreaChart>
           </ResponsiveContainer>

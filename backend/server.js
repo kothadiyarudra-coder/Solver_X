@@ -31,6 +31,7 @@ const io = new Server(server, {
 });
 
 app.set('io', io);
+global.io = io;
 
 io.on('connection', (socket) => {
   console.log(`[Socket.IO] Client connected: ${socket.id}`);
