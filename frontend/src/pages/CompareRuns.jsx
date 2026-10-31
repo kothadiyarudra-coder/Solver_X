@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   GitCompare,
@@ -21,7 +21,7 @@ import socket from "../services/socket";
 export default function CompareRuns() {
   const { selectedProject } = useProject();
   const navigate = useNavigate();
-  const [runs, setRuns] = useState([]);
+  const [allRuns, setAllRuns] = useState([]);
   const [run1, setRun1] = useState("");
   const [run2, setRun2] = useState("");
   const [comparison, setComparison] = useState(null);
@@ -29,24 +29,34 @@ export default function CompareRuns() {
   const [comparing, setComparing] = useState(false);
   const [error, setError] = useState(null);
 
+  // Track if initial default baseline and target have already been populated once
+  const hasInitializedSelections = useRef(false);
+
   const fetchRuns = async () => {
     setLoadingRuns(true);
     try {
+      // Fetch all runs across all projects so comparison matrix can cross-reference any runs
       const data = await api.getRuns({
-        projectId: selectedProject !== "all" ? selectedProject : undefined,
-        limit: 50,
+        limit: 100,
       });
       const runList = data || [];
-      setRuns(runList);
-      if (runList.length >= 2) {
-        setRun1((prev) => (prev && runList.some((r) => r.runId === prev) ? prev : runList[0].runId));
-        setRun2((prev) => (prev && runList.some((r) => r.runId === prev) ? prev : runList[1].runId));
-      } else if (runList.length === 1) {
-        setRun1(runList[0].runId);
-        setRun2("");
-      } else {
-        setRun1("");
-        setRun2("");
+      setAllRuns(runList);
+
+      // Only initialize Run 1 and Run 2 ONCE on initial mount when they are not selected yet.
+      // Changing projects must NEVER reset or change Run 1 and Run 2 selections.
+      if (!hasInitializedSelections.current && runList.length > 0) {
+        hasInitializedSelections.current = true;
+        const projectRuns = selectedProject !== "all"
+          ? runList.filter((r) => r.projectId === selectedProject)
+          : runList;
+        const initialList = projectRuns.length >= 2 ? projectRuns : runList;
+
+        if (initialList.length >= 2) {
+          setRun1((prev) => prev || initialList[0].runId);
+          setRun2((prev) => prev || initialList[1].runId);
+        } else if (initialList.length === 1) {
+          setRun1((prev) => prev || initialList[0].runId);
+        }
       }
     } catch (err) {
       console.error("[CompareRuns] Failed to load runs:", err);
@@ -55,6 +65,8 @@ export default function CompareRuns() {
     }
   };
 
+  // Fetch runs on initial mount and when selectedProject changes for history list,
+  // without touching run1 and run2 selections!
   useEffect(() => {
     fetchRuns();
   }, [selectedProject]);
@@ -63,9 +75,8 @@ export default function CompareRuns() {
   useEffect(() => {
     const handleRunUpdate = (newOrUpdatedRun) => {
       if (!newOrUpdatedRun || !newOrUpdatedRun.runId) return;
-      if (selectedProject !== "all" && newOrUpdatedRun.projectId !== selectedProject) return;
 
-      setRuns((prev) => {
+      setAllRuns((prev) => {
         const index = prev.findIndex((r) => r.runId === newOrUpdatedRun.runId);
         if (index >= 0) {
           const updated = [...prev];
@@ -85,7 +96,7 @@ export default function CompareRuns() {
       socket.off("run_updated", handleRunUpdate);
       socket.off("code_analyzed", fetchRuns);
     };
-  }, [selectedProject]);
+  }, []);
 
   const handleCompare = async () => {
     if (!run1 || !run2 || run1 === run2) return;
@@ -126,6 +137,25 @@ export default function CompareRuns() {
     );
   };
 
+  // Filter runs for the table based on selectedProject, while allRuns remains available for comparison
+  const displayedRuns = selectedProject === "all"
+    ? allRuns
+    : allRuns.filter((r) => r.projectId === selectedProject);
+
+  // Group or sort runs in the selector dropdown
+  const currentProjectRuns = selectedProject !== "all"
+    ? allRuns.filter((r) => r.projectId === selectedProject)
+    : [];
+  const otherProjectRuns = selectedProject !== "all"
+    ? allRuns.filter((r) => r.projectId !== selectedProject)
+    : allRuns;
+
+  const renderRunOption = (r) => (
+    <option key={r.runId} value={r.runId}>
+      [{r.projectId}] [{r.status.toUpperCase()}] {r.runId} — {r.name} ({r.durationMs || 0}ms)
+    </option>
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -162,11 +192,18 @@ export default function CompareRuns() {
               className="w-full p-3 rounded-lg border border-[#302345] bg-[#241738] text-white outline-none focus:border-purple-500 font-mono text-sm"
             >
               <option value="">Choose Baseline Run</option>
-              {runs.map((r) => (
-                <option key={r.runId} value={r.runId}>
-                  [{r.status.toUpperCase()}] {r.runId} — {r.name} ({r.durationMs || 0}ms)
-                </option>
-              ))}
+              {currentProjectRuns.length > 0 ? (
+                <>
+                  <optgroup label={`Project: ${selectedProject}`}>
+                    {currentProjectRuns.map(renderRunOption)}
+                  </optgroup>
+                  <optgroup label="Other Projects">
+                    {otherProjectRuns.map(renderRunOption)}
+                  </optgroup>
+                </>
+              ) : (
+                allRuns.map(renderRunOption)
+              )}
             </select>
           </div>
 
@@ -181,11 +218,18 @@ export default function CompareRuns() {
               className="w-full p-3 rounded-lg border border-[#302345] bg-[#241738] text-white outline-none focus:border-purple-500 font-mono text-sm"
             >
               <option value="">Choose Target Run</option>
-              {runs.map((r) => (
-                <option key={r.runId} value={r.runId}>
-                  [{r.status.toUpperCase()}] {r.runId} — {r.name} ({r.durationMs || 0}ms)
-                </option>
-              ))}
+              {currentProjectRuns.length > 0 ? (
+                <>
+                  <optgroup label={`Project: ${selectedProject}`}>
+                    {currentProjectRuns.map(renderRunOption)}
+                  </optgroup>
+                  <optgroup label="Other Projects">
+                    {otherProjectRuns.map(renderRunOption)}
+                  </optgroup>
+                </>
+              ) : (
+                allRuns.map(renderRunOption)
+              )}
             </select>
           </div>
         </div>
@@ -195,12 +239,12 @@ export default function CompareRuns() {
             <RefreshCw className="animate-spin text-purple-400" size={16} />
             Loading runs from database...
           </div>
-        ) : runs.length < 2 ? (
+        ) : allRuns.length < 2 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center text-slate-400">
             <Inbox size={28} className="text-slate-500 mb-2" />
             <p className="text-sm font-medium text-slate-300">Need at least 2 runs in database to compare</p>
             <p className="text-xs text-slate-500 mt-1">
-              Currently {runs.length} run(s) recorded in MongoDB. Execute another scenario or run code analysis to enable differential comparison.
+              Currently {allRuns.length} run(s) recorded in MongoDB. Execute another scenario or run code analysis to enable differential comparison.
             </p>
           </div>
         ) : comparing ? (
@@ -298,12 +342,12 @@ export default function CompareRuns() {
 
       {/* List of Runs Performed (Release & Execution History) */}
       <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-6 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Layers className="text-indigo-400" size={20} />
             <h2 className="text-lg font-bold text-white">Runs & Release History</h2>
             <span className="px-2 py-0.5 rounded text-xs bg-purple-500/10 text-purple-300 font-mono border border-purple-500/20">
-              {runs.length} recorded
+              {displayedRuns.length} recorded {selectedProject !== "all" && `for ${selectedProject}`}
             </span>
           </div>
           <span className="text-xs text-slate-400">
@@ -311,9 +355,9 @@ export default function CompareRuns() {
           </span>
         </div>
 
-        {runs.length === 0 ? (
+        {displayedRuns.length === 0 ? (
           <div className="text-center py-8 text-slate-500 text-sm">
-            No runs recorded yet. Perform a codebase analysis or trigger telemetry to record runs.
+            No runs recorded for {selectedProject !== "all" ? `project '${selectedProject}'` : 'any project'} yet. Perform a codebase analysis or trigger telemetry to record runs.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-[#302345]">
@@ -330,8 +374,10 @@ export default function CompareRuns() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#302345] text-slate-200">
-                {runs.map((r) => {
+                {displayedRuns.map((r) => {
                   const isAudit = r.runId?.startsWith("audit-") || r.metadata?.source === "codebase_audit";
+                  const isBaseline = run1 === r.runId;
+                  const isTarget = run2 === r.runId;
                   return (
                     <tr key={r.runId} className="hover:bg-[#281d3e] transition">
                       <td className="p-4">
@@ -377,17 +423,25 @@ export default function CompareRuns() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => setRun1(r.runId)}
-                            className="px-2 py-1 text-xs rounded bg-[#241738] border border-[#302345] text-purple-300 hover:bg-purple-600/20 transition"
+                            className={`px-2 py-1 text-xs rounded border transition ${
+                              isBaseline
+                                ? "bg-purple-600 text-white border-purple-500 font-bold"
+                                : "bg-[#241738] border-[#302345] text-purple-300 hover:bg-purple-600/20"
+                            }`}
                             title="Set as Run 1 baseline for comparison"
                           >
-                            Set Baseline
+                            {isBaseline ? "Baseline ✓" : "Set Baseline"}
                           </button>
                           <button
                             onClick={() => setRun2(r.runId)}
-                            className="px-2 py-1 text-xs rounded bg-[#241738] border border-[#302345] text-blue-300 hover:bg-blue-600/20 transition"
+                            className={`px-2 py-1 text-xs rounded border transition ${
+                              isTarget
+                                ? "bg-blue-600 text-white border-blue-500 font-bold"
+                                : "bg-[#241738] border-[#302345] text-blue-300 hover:bg-blue-600/20"
+                            }`}
                             title="Set as Run 2 target for comparison"
                           >
-                            Set Target
+                            {isTarget ? "Target ✓" : "Set Target"}
                           </button>
                           <button
                             onClick={() => navigate(`/diagnosis?runId=${encodeURIComponent(r.runId)}`)}
