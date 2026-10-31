@@ -68,7 +68,22 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
-  }, []);
+
+    // Real-time live update handlers via Socket.IO
+    const onLiveUpdate = () => {
+      loadData(true); // silent refresh
+    };
+
+    socket.on('run_started', onLiveUpdate);
+    socket.on('run_updated', onLiveUpdate);
+    socket.on('new_event', onLiveUpdate);
+
+    return () => {
+      socket.off('run_started', onLiveUpdate);
+      socket.off('run_updated', onLiveUpdate);
+      socket.off('new_event', onLiveUpdate);
+    };
+  }, [loadData]);
 
   const totalRuns = analytics?.totalRuns ?? runs.length;
   const successfulRuns = analytics?.successfulRuns ?? runs.filter((r) => r.status === "success").length;

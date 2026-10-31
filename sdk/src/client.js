@@ -3,7 +3,7 @@ const { generateRunId, generateEventId } = require('./ids');
 
 class DevTraceClient {
   constructor(config = {}) {
-    this.baseUrl = config.baseUrl || process.env.DEVTRACE_API_URL || 'http://localhost:5000/api';
+    this.baseUrl = config.baseUrl || process.env.DEVTRACE_API_URL || 'http://localhost:5001/api';
     this.projectId = config.projectId || process.env.DEVTRACE_PROJECT_ID || 'default-project';
     this.timeout = config.timeout || 5000;
     this.silenceErrors = config.silenceErrors !== false; // Don't crash caller if backend down
@@ -43,7 +43,7 @@ class DevTraceClient {
   }
 
   /**
-   * Track an event within a run
+   * Track an individual event within a run
    */
   async track({ runId, type, status = 'success', payload = {}, durationMs = 0, eventId, timestamp } = {}) {
     if (!runId) {
@@ -75,6 +75,43 @@ class DevTraceClient {
         return eventData;
       }
       throw error;
+    }
+  }
+
+  /**
+   * Automatically execute an async operation, measure its runtime,
+   * and track the event as 'success' or 'failed' with error details.
+   */
+  async trackAsync(runId, type, asyncFn, extraPayload = {}) {
+    const startTime = Date.now();
+    try {
+      const result = await asyncFn();
+      const durationMs = Date.now() - startTime;
+      await this.track({
+        runId,
+        type,
+        status: 'success',
+        durationMs,
+        payload: {
+          ...extraPayload,
+          resultType: typeof result,
+        },
+      });
+      return result;
+    } catch (error) {
+      const durationMs = Date.now() - startTime;
+      await this.track({
+        runId,
+        type,
+        status: 'failed',
+        durationMs,
+        payload: {
+          ...extraPayload,
+          errorName: error.name,
+          message: error.message,
+        },
+      });
+      throw error; // Re-throw so caller workflow can handle or propagate
     }
   }
 
@@ -111,4 +148,3 @@ class DevTraceClient {
 }
 
 module.exports = DevTraceClient;
-
