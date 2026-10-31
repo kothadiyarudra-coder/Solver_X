@@ -12,6 +12,7 @@ import CompareRuns from './pages/CompareRuns';
 import Diagnosis from './pages/Diagnosis';
 import Projects from './pages/Projects';
 import Settings from './pages/Settings';
+import Help from './pages/Help';
 import { ProjectProvider } from './context/ProjectContext';
 
 class ErrorBoundary extends React.Component {
@@ -90,9 +91,8 @@ export default function App() {
                 {/* Settings */}
                 <Route path="/settings" element={<Settings />} />
 
-                {/* Secondary links */}
-                <Route path="/activity" element={<Discover />} />
-                <Route path="/stats" element={<Performance />} />
+                {/* Help & Interactive Working Demo */}
+                <Route path="/help" element={<Help />} />
 
                 {/* Catch-all */}
                 <Route path="*" element={<Navigate to="/discover" replace />} />

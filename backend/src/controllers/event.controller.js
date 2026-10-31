@@ -12,7 +12,7 @@ const createEvent = async (req, res, next) => {
   try {
     const { eventId, projectId, runId, type, status, timestamp, durationMs, payload } = req.body;
 
-    // ---------- Required field validation (Demo Scenario D) ----------
+    // ---------- Required field validation ----------
     const missing = [];
     if (!eventId || !String(eventId).trim()) missing.push('eventId');
     if (!runId || !String(runId).trim()) missing.push('runId');
@@ -42,7 +42,7 @@ const createEvent = async (req, res, next) => {
       });
     }
 
-    // ---------- Duplicate check (Demo Scenario C — clean 409 response) ----------
+    // ---------- Duplicate check (clean 409 response) ----------
     const existing = await Event.findOne({ eventId: eventId.trim() });
     if (existing) {
       return res.status(409).json({
@@ -334,7 +334,16 @@ const getPerformanceStats = async (req, res, next) => {
     const match = {};
     if (projectId && projectId !== 'all') match.projectId = projectId;
 
-    const durations = await Event.find(match, { durationMs: 1, type: 1, status: 1, timestamp: 1, 'payload.endpoint': 1, 'payload.operation': 1, runId: 1, projectId: 1 })
+    const durations = await Event.find(match, {
+      durationMs: 1,
+      type: 1,
+      status: 1,
+      timestamp: 1,
+      'payload.endpoint': 1,
+      'payload.operation': 1,
+      runId: 1,
+      projectId: 1,
+    })
       .sort({ timestamp: 1 })
       .lean();
 
@@ -360,12 +369,18 @@ const getPerformanceStats = async (req, res, next) => {
     const stepMs = stepMinutes * 60 * 1000;
 
     let timeline = [];
+    const now = Date.now();
+    const endAligned = Math.ceil(now / stepMs) * stepMs;
+    const windowPoints = 8;
+    const defaultStart = endAligned - (windowPoints - 1) * stepMs;
+
     if (count > 0) {
+      // Anchor sliding window to current real time, extending back to cover recent events
       const firstTime = new Date(durations[0].timestamp).getTime();
-      const lastTime = new Date(durations[count - 1].timestamp).getTime();
-      const startAligned = Math.floor(firstTime / stepMs) * stepMs;
-      const minEnd = Math.max(lastTime, startAligned + 5 * stepMs);
-      const endAligned = Math.ceil(minEnd / stepMs) * stepMs;
+      const startAligned = Math.max(
+        Math.min(Math.floor(firstTime / stepMs) * stepMs, defaultStart),
+        endAligned - 24 * stepMs // Cap to maximum 24 intervals so chart remains responsive & clean
+      );
 
       const buckets = new Map();
       for (let t = startAligned; t <= endAligned; t += stepMs) {
@@ -378,42 +393,38 @@ const getPerformanceStats = async (req, res, next) => {
         const evTime = new Date(e.timestamp).getTime();
         const bTime = Math.floor(evTime / stepMs) * stepMs;
         let b = buckets.get(bTime);
-        if (!b) {
-          const d = new Date(bTime);
-          const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-          b = { time: timeStr, timestamp: bTime, durations: [], errors: 0, failed: 0 };
-          buckets.set(bTime, b);
-        }
-        b.durations.push(e.durationMs || 0);
-        if (e.status === 'failed') {
-          b.errors++;
-          b.failed++;
+        if (b) {
+          b.durations.push(e.durationMs || 0);
+          if (e.status === 'failed') {
+            b.errors++;
+            b.failed++;
+          }
         }
       });
 
       timeline = Array.from(buckets.entries())
         .sort(([t1], [t2]) => t1 - t2)
-        .map(([_, b]) => {
+        .map(([t, b]) => {
           b.durations.sort((a, b) => a - b);
           const c = b.durations.length;
+          const d = new Date(t);
+          const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
           return {
-            time: b.time,
-            timestamp: b.timestamp,
+            time: timeStr,
+            timestamp: t,
             count: c,
-            p50: c > 0 ? b.durations[Math.floor(c * 0.5)] : p50,
-            p75: c > 0 ? b.durations[Math.floor(c * 0.75)] : p75,
-            p95: c > 0 ? b.durations[Math.floor(c * 0.95)] : p95,
-            avg: c > 0 ? Math.round(b.durations.reduce((s, v) => s + v, 0) / c) : avg,
+            p50: c > 0 ? b.durations[Math.floor(c * 0.5)] : 0,
+            p75: c > 0 ? b.durations[Math.floor(c * 0.75)] : 0,
+            p95: c > 0 ? b.durations[Math.floor(c * 0.95)] : 0,
+            avg: c > 0 ? Math.round(b.durations.reduce((s, v) => s + v, 0) / c) : 0,
             errors: b.errors || 0,
             failed: b.failed || 0,
             errorRate: c > 0 ? Number(((b.errors / c) * 100).toFixed(1)) : 0,
           };
         });
     } else {
-      const now = Date.now();
-      timeline = [];
-      for (let i = 5; i >= 0; i--) {
-        const t = now - i * stepMs;
+      // When no events exist yet, output clean real-time timeline leading up to current time
+      for (let t = defaultStart; t <= endAligned; t += stepMs) {
         const d = new Date(t);
         const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
         timeline.push({
@@ -462,22 +473,30 @@ const getPerformanceStats = async (req, res, next) => {
       { $sort: { avgDuration: -1 } }
     ]);
 
+    const transactions = operationAgg.map((op) => ({
+      name: op._id.name || op._id.type,
+      type: op._id.type,
+      count: op.count,
+      avgDuration: Math.round(op.avgDuration || 0),
+      maxDuration: op.maxDuration || 0,
+      failureRate: op.count > 0 ? ((op.failedCount / op.count) * 100).toFixed(1) + '%' : '0.0%',
+      projectId: op.projectId,
+      runId: op.sampleRunId,
+    }));
+
     return res.json({
       success: true,
       data: {
-        summary: { p50, p75, p95, avg, totalEvents: count },
+        summary: {
+          p50,
+          p75,
+          p95,
+          avg,
+          totalEvents: count,
+        },
         timeline,
         interval: `${stepMinutes}m`,
-        transactions: operationAgg.map(op => ({
-          name: op._id.name || op._id.type,
-          type: op._id.type,
-          count: op.count,
-          avgDuration: Math.round(op.avgDuration || 0),
-          maxDuration: op.maxDuration || 0,
-          failureRate: op.count > 0 ? ((op.failedCount / op.count) * 100).toFixed(1) + '%' : '0.0%',
-          projectId: op.projectId,
-          runId: op.sampleRunId,
-        }))
+        transactions,
       },
       message: 'Performance metrics calculated successfully',
     });

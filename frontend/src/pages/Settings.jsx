@@ -10,7 +10,7 @@ import {
 export default function Settings() {
   const [settings, setSettings] = useState({
     username: "Developer",
-    email: "developer@devtrace.ai",
+    email: "developer@solverx.ai",
     emailNotifications: true,
     failureAlerts: true,
     autoRefresh: true,

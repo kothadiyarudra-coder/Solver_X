@@ -383,7 +383,7 @@ export default function Projects() {
                 className="w-full bg-[#1E1531] border border-[#302345] text-white p-2.5 rounded-lg outline-none focus:border-purple-500 font-mono text-xs"
               />
               <p className="text-[11px] text-slate-400">
-                DevTrace AI will directly scan the source files (.js, .py, .go, .json) to identify performance bottlenecks and bug vectors.
+                Solver_X will directly scan the source files (.js, .py, .go, .json) to identify performance bottlenecks and bug vectors.
               </p>
             </div>
           )}
