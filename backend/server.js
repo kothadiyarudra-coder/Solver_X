@@ -65,10 +65,17 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5000;
 
 // Connect Database and Start Server
-connectDB().then(() => {
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
+// In serverless environments (e.g. Vercel), server.listen is not called
+if (!process.env.VERCEL) {
+  connectDB().then(() => {
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
+    });
   });
-});
+} else {
+  connectDB();
+}
 
-module.exports = { app, server };
+module.exports = app;
+module.exports.app = app;
+module.exports.server = server;
