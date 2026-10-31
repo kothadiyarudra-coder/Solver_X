@@ -784,7 +784,9 @@ export default function Projects() {
                       {diagnosisModalProject.codeAnalysis.summary}
                     </p>
                     <div className="text-[11px] text-slate-400 pt-2 flex items-center justify-between border-t border-[#302345]">
-                      <span>Model: {diagnosisModalProject.codeAnalysis.modelUsed || "gemini-1.5-flash"}</span>
+                      <span>
+                        {diagnosisModalProject.codeAnalysis.provider ? `${diagnosisModalProject.codeAnalysis.provider} • ` : ''}Model: {diagnosisModalProject.codeAnalysis.modelUsed || "grok-2-latest"}
+                      </span>
                       <span>
                         Last Analyzed:{" "}
                         {diagnosisModalProject.codeAnalysis.analyzedAt

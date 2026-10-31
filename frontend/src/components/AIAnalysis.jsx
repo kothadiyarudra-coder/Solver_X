@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, CheckCircle, Lightbulb, Brain } from "lucide-react";
+import { AlertTriangle, CheckCircle, Lightbulb, Brain, Sparkles } from "lucide-react";
 
 const AIAnalysis = ({ diagnosis }) => {
   if (!diagnosis) {
@@ -12,11 +12,19 @@ const AIAnalysis = ({ diagnosis }) => {
 
   return (
     <div className="bg-[#1E1531] border border-[#302345] rounded-xl p-6 space-y-5">
-      <div className="flex items-center gap-3">
-        <Brain className="text-purple-400" size={24} />
-        <h2 className="text-xl font-semibold text-white">
-          AI Analysis
-        </h2>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <Brain className="text-purple-400" size={24} />
+          <h2 className="text-xl font-semibold text-white">
+            AI Analysis
+          </h2>
+        </div>
+        {diagnosis.provider && (
+          <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 font-medium">
+            <Sparkles size={12} className="text-purple-400" />
+            {diagnosis.provider} {diagnosis.modelUsed ? `• ${diagnosis.modelUsed}` : ''}
+          </span>
+        )}
       </div>
 
       <div>
