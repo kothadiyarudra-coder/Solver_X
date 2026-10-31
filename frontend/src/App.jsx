@@ -12,6 +12,7 @@ import CompareRuns from './pages/CompareRuns';
 import Diagnosis from './pages/Diagnosis';
 import Projects from './pages/Projects';
 import Settings from './pages/Settings';
+import { ProjectProvider } from './context/ProjectContext';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -51,13 +52,14 @@ class ErrorBoundary extends React.Component {
 export default function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-[#1A1325] text-slate-100 flex font-sans">
-        <Sidebar />
-        <div className="flex-1 flex flex-col pl-64 min-w-0">
-          <Navbar />
-          <main className="flex-1 overflow-y-auto p-6 bg-[#1A1325]">
-            <ErrorBoundary>
-              <Routes>
+      <ProjectProvider>
+        <div className="min-h-screen bg-[#1A1325] text-slate-100 flex font-sans">
+          <Sidebar />
+          <div className="flex-1 flex flex-col pl-64 min-w-0">
+            <Navbar />
+            <main className="flex-1 overflow-y-auto p-6 bg-[#1A1325]">
+              <ErrorBoundary>
+                <Routes>
                 {/* Sentry-Style Discover page (Errors by Title with stacked area chart) */}
                 <Route path="/" element={<Discover />} />
                 <Route path="/discover" element={<Discover />} />
@@ -99,6 +101,7 @@ export default function App() {
           </main>
         </div>
       </div>
-    </Router>
-  );
+    </ProjectProvider>
+  </Router>
+);
 }

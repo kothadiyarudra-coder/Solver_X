@@ -32,6 +32,33 @@ const ProjectSchema = new mongoose.Schema(
       trim: true,
       maxlength: [1000, 'Description must be at most 1000 characters'],
     },
+    sourceType: {
+      type: String,
+      enum: ['telemetry', 'local_path', 'software_url', 'folder_upload'],
+      default: 'telemetry',
+    },
+    sourcePath: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    softwareUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    codeFiles: [
+      {
+        name: { type: String },
+        path: { type: String },
+        content: { type: String },
+        size: { type: Number, default: 0 },
+      },
+    ],
+    codeAnalysis: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
   },
   {
     timestamps: true, // auto createdAt + updatedAt

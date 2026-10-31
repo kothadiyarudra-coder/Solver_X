@@ -27,11 +27,13 @@ import {
 } from "recharts";
 import { api } from "../services/api";
 import { socket } from "../services/socket";
+import { useProject } from "../context/ProjectContext";
 
 const PIE_COLORS = ["#9333EA", "#3B82F6", "#EC4899", "#10B981", "#F59E0B"];
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { selectedProject, selectedProjectObj } = useProject();
   const [loading, setLoading] = useState(true);
   const [analytics, setAnalytics] = useState(null);
   const [runs, setRuns] = useState([]);
@@ -40,32 +42,25 @@ export default function Dashboard() {
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [analyticsData, runsData, timeseries] = await Promise.all([
-        api.getAnalytics(),
-        api.getRuns({ limit: 8 }),
-        api.getEventTimeseries(),
+      const pId = selectedProject !== "all" ? selectedProject : null;
+      const [analyticsData, runsData, timeseriesRes] = await Promise.all([
+        api.getAnalytics(pId),
+        api.getRuns({ projectId: pId || undefined, limit: 8 }),
+        api.getEventTimeseries({ projectId: pId || undefined }),
       ]);
 
       setAnalytics(analyticsData);
       setRuns(Array.isArray(runsData) ? runsData : []);
 
       // Group timeseries for execution trend chart
-      const hourMap = {};
-      (timeseries || []).forEach((item) => {
-        const hour = item._id?.hour || "00:00";
-        if (!hourMap[hour]) hourMap[hour] = { time: hour, success: 0, failed: 0 };
-        const errors = item.errors || 0;
-        const total = item.count || 0;
-        hourMap[hour].failed += errors;
-        hourMap[hour].success += Math.max(0, total - errors);
-      });
-      setTrendData(Object.values(hourMap));
+      const timeseries = Array.isArray(timeseriesRes?.points) ? timeseriesRes.points : Array.isArray(timeseriesRes) ? timeseriesRes : [];
+      setTrendData(timeseries);
     } catch (err) {
       console.error("[Dashboard] Load failed:", err);
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [selectedProject]);
 
   useEffect(() => {
     loadData(false);
@@ -310,7 +305,7 @@ export default function Dashboard() {
                   </Pie>
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#241738",
+                      backgroundColor: "#fff",
                       borderColor: "#302345",
                       borderRadius: "8px",
                       color: "#f8fafc",

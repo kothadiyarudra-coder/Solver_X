@@ -29,6 +29,16 @@ export const api = {
     return res.data;
   },
 
+  async analyzeProjectCode(projectId, data = {}) {
+    const res = await apiClient.post(`/projects/${projectId}/analyze`, data);
+    return res.data?.data;
+  },
+
+  async getProjectAnalysis(projectId) {
+    const res = await apiClient.get(`/projects/${projectId}/analysis`);
+    return res.data?.data;
+  },
+
   // Analytics & Aggregates
   async getAnalytics(projectId = null) {
     try {
@@ -115,10 +125,13 @@ export const api = {
   async getEventTimeseries(params = {}) {
     try {
       const res = await apiClient.get('/events/timeseries', { params });
-      return res.data?.data || [];
+      return {
+        points: Array.isArray(res.data?.data) ? res.data.data : [],
+        categories: res.data?.categories || [],
+      };
     } catch (err) {
       console.warn('[API] getEventTimeseries error:', err.message);
-      return [];
+      return { points: [], categories: [] };
     }
   },
 

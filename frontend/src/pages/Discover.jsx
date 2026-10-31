@@ -22,6 +22,7 @@ import {
   Tooltip,
 } from "recharts";
 import { api } from "../services/api";
+import { useProject } from "../context/ProjectContext";
 
 const AREA_COLORS = [
   "#E1567C",
@@ -33,7 +34,9 @@ const AREA_COLORS = [
 ];
 
 export default function Discover() {
+  const { selectedProject, selectedProjectObj } = useProject();
   const [query, setQuery] = useState("event.type:error");
+  const [interval, setInterval] = useState("5m");
   const [loading, setLoading] = useState(true);
   const [errorList, setErrorList] = useState([]);
   const [totalEvents, setTotalEvents] = useState(0);
@@ -43,34 +46,53 @@ export default function Discover() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [errorData, timeseriesData] = await Promise.all([
-        api.getErrorEvents(),
-        api.getEventTimeseries(),
+      const pId = selectedProject !== "all" ? selectedProject : undefined;
+      const [errorData, timeseriesRes] = await Promise.all([
+        api.getErrorEvents({ projectId: pId }),
+        api.getEventTimeseries({ projectId: pId, interval }),
       ]);
 
       const errors = errorData.errors || [];
       setErrorList(errors);
       setTotalEvents(errorData.totalErrors || 0);
 
-      // Extract distinct categories from timeseries
-      const typesSet = new Set();
-      timeseriesData.forEach((t) => {
-        if (t._id?.type) typesSet.add(t._id.type);
-      });
-      const categories = Array.from(typesSet);
+      // Handle new structured response or legacy array
+      let points = [];
+      let categories = [];
+
+      if (timeseriesRes && Array.isArray(timeseriesRes.points)) {
+        points = timeseriesRes.points;
+        categories = timeseriesRes.categories || [];
+      } else if (Array.isArray(timeseriesRes)) {
+        // Fallback for legacy format
+        const typesSet = new Set();
+        const hourMap = {};
+        timeseriesRes.forEach((item) => {
+          const hour = item._id?.hour || "00:00";
+          if (!hourMap[hour]) hourMap[hour] = { time: hour };
+          const key = item._id?.type || "error";
+          typesSet.add(key);
+          hourMap[hour][key] = (hourMap[hour][key] || 0) + (item.errors || item.count || 0);
+        });
+        points = Object.values(hourMap);
+        categories = Array.from(typesSet);
+      }
+
+      // If categories is empty, extract keys from points
+      if (categories.length === 0 && points.length > 0) {
+        const catSet = new Set();
+        points.forEach((p) => {
+          Object.keys(p).forEach((k) => {
+            if (k !== "time" && k !== "timestamp" && !k.endsWith("_errors")) {
+              catSet.add(k);
+            }
+          });
+        });
+        categories = Array.from(catSet);
+      }
+
       setErrorCategories(categories);
-
-      // Transform timeseries into chart data grouped by hour
-      const hourMap = {};
-      timeseriesData.forEach((item) => {
-        const hour = item._id?.hour || "00:00";
-        if (!hourMap[hour]) hourMap[hour] = { time: hour };
-        const key = item._id?.type || "error";
-        hourMap[hour][key] = (hourMap[hour][key] || 0) + (item.errors || item.count || 0);
-      });
-
-      const formattedPoints = Object.values(hourMap);
-      setChartData(formattedPoints);
+      setChartData(points);
     } catch (err) {
       console.error("[Discover] Failed to fetch telemetry:", err);
     } finally {
@@ -80,7 +102,7 @@ export default function Discover() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [interval, selectedProject]);
 
   const filteredErrors = errorList.filter((item) => {
     if (!query.trim() || query === "event.type:error") return true;
@@ -102,7 +124,24 @@ export default function Discover() {
           <span className="font-bold text-white">Errors by Title</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* Interval Selector */}
+          <div className="flex items-center bg-[#241738] rounded-lg p-0.5 border border-slate-700/60 text-[11px]">
+            {["1m", "5m", "15m", "1h"].map((intVal) => (
+              <button
+                key={intVal}
+                onClick={() => setInterval(intVal)}
+                className={`px-2 py-1 rounded-md transition font-mono ${
+                  interval === intVal
+                    ? "bg-purple-600 text-white font-semibold"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {intVal}
+              </button>
+            ))}
+          </div>
+
           <button
             onClick={fetchData}
             title="Refresh telemetry"

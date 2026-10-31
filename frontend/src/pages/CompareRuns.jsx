@@ -10,8 +10,10 @@ import {
   Inbox,
 } from "lucide-react";
 import { api } from "../services/api";
+import { useProject } from "../context/ProjectContext";
 
 export default function CompareRuns() {
+  const { selectedProject } = useProject();
   const [runs, setRuns] = useState([]);
   const [run1, setRun1] = useState("");
   const [run2, setRun2] = useState("");
@@ -24,13 +26,20 @@ export default function CompareRuns() {
     const fetchRuns = async () => {
       setLoadingRuns(true);
       try {
-        const data = await api.getRuns({ limit: 50 });
+        const data = await api.getRuns({
+          projectId: selectedProject !== "all" ? selectedProject : undefined,
+          limit: 50,
+        });
         setRuns(data || []);
         if (data && data.length >= 2) {
           setRun1(data[0].runId);
           setRun2(data[1].runId);
         } else if (data && data.length === 1) {
           setRun1(data[0].runId);
+          setRun2("");
+        } else {
+          setRun1("");
+          setRun2("");
         }
       } catch (err) {
         console.error("[CompareRuns] Failed to load runs:", err);
@@ -40,7 +49,7 @@ export default function CompareRuns() {
     };
 
     fetchRuns();
-  }, []);
+  }, [selectedProject]);
 
   const handleCompare = async () => {
     if (!run1 || !run2) return;

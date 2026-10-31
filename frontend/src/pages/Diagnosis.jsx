@@ -2,8 +2,10 @@ import React, { useState, useEffect } from "react";
 import { Brain, Sparkles, RefreshCw, AlertCircle, Inbox } from "lucide-react";
 import AIAnalysis from "../components/AIAnalysis";
 import { api } from "../services/api";
+import { useProject } from "../context/ProjectContext";
 
 export default function Diagnosis() {
+  const { selectedProject, selectedProjectObj } = useProject();
   const [runs, setRuns] = useState([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [diagnosis, setDiagnosis] = useState(null);
@@ -15,7 +17,10 @@ export default function Diagnosis() {
     const fetchRuns = async () => {
       setLoadingRuns(true);
       try {
-        const allRuns = await api.getRuns({ limit: 50 });
+        const allRuns = await api.getRuns({
+          projectId: selectedProject !== "all" ? selectedProject : undefined,
+          limit: 50,
+        });
         setRuns(allRuns || []);
         // Prefer a failed run if available
         const failed = (allRuns || []).find((r) => r.status === "failed");
@@ -23,6 +28,8 @@ export default function Diagnosis() {
           setSelectedRunId(failed.runId);
         } else if (allRuns && allRuns.length > 0) {
           setSelectedRunId(allRuns[0].runId);
+        } else {
+          setSelectedRunId("");
         }
       } catch (err) {
         console.error("[Diagnosis] Failed to load runs:", err);
@@ -32,7 +39,7 @@ export default function Diagnosis() {
     };
 
     fetchRuns();
-  }, []);
+  }, [selectedProject]);
 
   const handleRunDiagnosis = async () => {
     if (!selectedRunId) return;
