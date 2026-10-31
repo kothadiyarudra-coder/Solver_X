@@ -7,6 +7,7 @@ const analysisController = require('../controllers/analysis.controller');
 // Project endpoints
 router.post('/', projectController.createProject);
 router.get('/', projectController.getProjects);
+router.delete('/:projectId', projectController.deleteProject);
 
 // Project runs & analytics
 router.get('/:projectId/runs', runController.getProjectRuns);
