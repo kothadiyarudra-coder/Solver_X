@@ -182,7 +182,9 @@ export default function Dashboard() {
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-white">{totalRuns}</span>
           </div>
-          <p className="mt-2 text-xs text-slate-500">Recorded across all project runs</p>
+          <p className="mt-2 text-xs text-slate-500">
+            {selectedProjectObj ? `Recorded for ${selectedProjectObj.name}` : "Recorded across all project runs"}
+          </p>
         </div>
 
         <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5 shadow-sm">
@@ -197,7 +199,9 @@ export default function Dashboard() {
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-emerald-400">{successRate}%</span>
           </div>
-          <p className="mt-2 text-xs text-slate-500">{successfulRuns} successful out of {totalRuns}</p>
+          <p className="mt-2 text-xs text-slate-500">
+            {totalRuns > 0 ? `${successfulRuns} successful out of ${totalRuns}` : "No runs recorded yet"}
+          </p>
         </div>
 
         <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5 shadow-sm">
@@ -212,7 +216,9 @@ export default function Dashboard() {
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-rose-400">{failedRuns}</span>
           </div>
-          <p className="mt-2 text-xs text-slate-500">Requires investigation or diagnosis</p>
+          <p className="mt-2 text-xs text-slate-500">
+            {failedRuns > 0 ? `${failedRuns} requires investigation or diagnosis` : "Zero failures detected"}
+          </p>
         </div>
 
         <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5 shadow-sm">
@@ -227,7 +233,9 @@ export default function Dashboard() {
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-white">{avgDurationMs} ms</span>
           </div>
-          <p className="mt-2 text-xs text-slate-500">Aggregated execution time</p>
+          <p className="mt-2 text-xs text-slate-500">
+            {totalRuns > 0 ? "Mean application runtime" : "No execution duration yet"}
+          </p>
         </div>
       </div>
 
