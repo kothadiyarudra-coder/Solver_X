@@ -251,6 +251,18 @@ ${JSON.stringify(sanitizedEvents, null, 2)}`;
 function readFilesFromDir(dirPath, maxFiles = 30) {
   const result = [];
   if (!fs.existsSync(dirPath)) return result;
+  try {
+    const stat = fs.statSync(dirPath);
+    if (stat.isFile()) {
+      const content = fs.readFileSync(dirPath, 'utf8');
+      return [{
+        name: path.basename(dirPath),
+        path: path.basename(dirPath),
+        content: content.slice(0, 35000),
+      }];
+    }
+  } catch {}
+
 
   const ignoreDirs = ['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.cache', '.gemini'];
   const validExts = ['.js', '.jsx', '.ts', '.tsx', '.py', '.json', '.go', '.java', '.rs', '.html', '.css', '.md'];
@@ -278,7 +290,7 @@ function readFilesFromDir(dirPath, maxFiles = 30) {
                 result.push({
                   name: entry.name,
                   path: relPath,
-                  content: content.slice(0, 6000), // first 6k chars
+                  content: content.slice(0, 35000), // full content up to 35k chars
                 });
                 count++;
               }
@@ -460,10 +472,23 @@ function generateFallbackCodeAnalysis(projectName, files, sourceType, sourcePath
  * Creates actionable error events that immediately appear on the Issues and Discover pages.
  */
 async function syncDiscoveredErrorsToDb(projectId, projectName, issues) {
-  if (!issues || !Array.isArray(issues) || issues.length === 0) return 0;
+  const auditRunId = `audit-run-${projectId}`;
+  if (!issues || !Array.isArray(issues) || issues.length === 0) {
+    try {
+      await Event.deleteMany({ projectId, runId: auditRunId, type: 'code_audit_error' });
+      await Run.updateOne(
+        { runId: auditRunId },
+        { $set: { status: 'success', errorCount: 0, totalEvents: 0, completedAt: new Date() } }
+      );
+    } catch (e) {
+      console.warn('[syncDiscoveredErrorsToDb] Failed to clear clean audit run:', e.message);
+    }
+    return 0;
+  }
 
   try {
-    const auditRunId = `audit-run-${projectId}`;
+    // Clear stale audit errors for this audit run so resolved bugs disappear
+    await Event.deleteMany({ projectId, runId: auditRunId, type: 'code_audit_error' });
 
     // Ensure audit Run document exists
     await Run.findOneAndUpdate(
@@ -592,7 +617,7 @@ async function analyzeCodebase(projectId, options = {}) {
   try {
     const fileSummaries = filesToAnalyze.slice(0, 25).map((f) => ({
       path: f.path || f.name,
-      snippet: (f.content || '').slice(0, 3500),
+      snippet: (f.content || '').slice(0, 35000),
     }));
 
     const systemPrompt = `You are a senior principal software engineer and static analysis auditor.
