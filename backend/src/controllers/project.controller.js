@@ -175,11 +175,17 @@ const analyzeProjectCode = async (req, res, next) => {
     const analysis = await analyzeCodebase(projectId, { files, localPath });
 
     const io = req.app.get('io');
-    if (io) io.emit('code_analyzed', { projectId, analysis });
+    if (io) {
+      io.emit('code_analyzed', { projectId, analysis });
+      if (analysis.auditRun) {
+        io.emit('run_created', analysis.auditRun);
+      }
+    }
 
     return res.json({
       success: true,
       data: analysis,
+      run: analysis.auditRun,
       message: 'Codebase diagnosis and performance audit completed',
     });
   } catch (error) {

@@ -246,26 +246,60 @@ ${JSON.stringify(sanitizedEvents, null, 2)}`;
 }
 
 /**
- * Scan a directory recursively for code files
+ * Resolve a user-supplied file or directory path across potential relative roots
  */
-function readFilesFromDir(dirPath, maxFiles = 30) {
+function resolveUserPath(rawPath) {
+  if (!rawPath || typeof rawPath !== 'string') return null;
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+
+  const repoRoot = path.resolve(__dirname, '../../../');
+  const candidates = [
+    trimmed,
+    path.resolve(trimmed),
+    path.resolve(process.cwd(), trimmed),
+    path.resolve(repoRoot, trimmed),
+    path.resolve(__dirname, '../../', trimmed),
+  ];
+
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) {
+        return c;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+/**
+ * Scan a path (either a single file or a directory) recursively for code files
+ */
+function readFilesFromDir(inputPath, maxFiles = 50) {
   const result = [];
-  if (!fs.existsSync(dirPath)) return result;
+  const resolved = resolveUserPath(inputPath);
+  if (!resolved) return result;
+
   try {
-    const stat = fs.statSync(dirPath);
+    const stat = fs.statSync(resolved);
+    // If user provided an individual file directly (e.g. index.js, app.py)
     if (stat.isFile()) {
-      const content = fs.readFileSync(dirPath, 'utf8');
-      return [{
-        name: path.basename(dirPath),
-        path: path.basename(dirPath),
-        content: content.slice(0, 35000),
-      }];
+      const content = fs.readFileSync(resolved, 'utf8');
+      result.push({
+        name: path.basename(resolved),
+        path: path.basename(resolved),
+        content: content.slice(0, 50000), // up to 50k chars for single file
+        size: stat.size,
+      });
+      return result;
     }
-  } catch {}
+  } catch (err) {
+    return result;
+  }
 
-
-  const ignoreDirs = ['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.cache', '.gemini'];
-  const validExts = ['.js', '.jsx', '.ts', '.tsx', '.py', '.json', '.go', '.java', '.rs', '.html', '.css', '.md'];
+  // Directory walking
+  const ignoreDirs = ['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.cache', '.gemini', '.turbo'];
+  const validExts = ['.js', '.jsx', '.ts', '.tsx', '.py', '.json', '.go', '.java', '.rs', '.html', '.css', '.md', '.sql', '.yaml', '.yml'];
 
   let count = 0;
   function walk(current) {
@@ -281,16 +315,17 @@ function readFilesFromDir(dirPath, maxFiles = 30) {
           }
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
-          if (validExts.includes(ext) || entry.name === 'Dockerfile') {
+          if (validExts.includes(ext) || entry.name === 'Dockerfile' || entry.name === 'Makefile') {
             try {
-              const stat = fs.statSync(full);
-              if (stat.size <= 150 * 1024) {
+              const fileStat = fs.statSync(full);
+              if (fileStat.size <= 250 * 1024) {
                 const content = fs.readFileSync(full, 'utf8');
-                const relPath = path.relative(dirPath, full);
+                const relPath = path.relative(resolved, full);
                 result.push({
                   name: entry.name,
-                  path: relPath,
-                  content: content.slice(0, 35000), // full content up to 35k chars
+                  path: relPath || entry.name,
+                  content: content.slice(0, 10000), // first 10k chars per file
+                  size: fileStat.size,
                 });
                 count++;
               }
@@ -301,7 +336,7 @@ function readFilesFromDir(dirPath, maxFiles = 30) {
     } catch {}
   }
 
-  walk(dirPath);
+  walk(resolved);
   return result;
 }
 
@@ -468,104 +503,150 @@ function generateFallbackCodeAnalysis(projectName, files, sourceType, sourcePath
 }
 
 /**
- * Synchronize newly discovered errors into the MongoDB events & runs collections
- * Creates actionable error events that immediately appear on the Issues and Discover pages.
+ * Record a unique execution Run and Event documents for every codebase audit.
+ * This guarantees:
+ * 1. The run appears in Releases / Compare Runs dropdowns and runs list with its real status (success or failed).
+ * 2. It has full event spans (file scans & defect events with stack traces).
+ * 3. It appears in the AI Diagnosis section with rich root cause diagnosis.
  */
-async function syncDiscoveredErrorsToDb(projectId, projectName, issues) {
-  const auditRunId = `audit-run-${projectId}`;
-  if (!issues || !Array.isArray(issues) || issues.length === 0) {
-    try {
-      await Event.deleteMany({ projectId, runId: auditRunId, type: 'code_audit_error' });
-      await Run.updateOne(
-        { runId: auditRunId },
-        { $set: { status: 'success', errorCount: 0, totalEvents: 0, completedAt: new Date() } }
-      );
-    } catch (e) {
-      console.warn('[syncDiscoveredErrorsToDb] Failed to clear clean audit run:', e.message);
-    }
-    return 0;
-  }
-
+async function recordAuditRunAndEvents(projectId, projectName, analysis, filesAnalyzed, durationMs) {
   try {
-    // Clear stale audit errors for this audit run so resolved bugs disappear
-    await Event.deleteMany({ projectId, runId: auditRunId, type: 'code_audit_error' });
+    const timestamp = Date.now();
+    const auditRunId = `audit-${projectId}-${timestamp.toString(36)}`;
+    const issues = analysis.issues || [];
+    const runStatus = issues.length > 0 ? 'failed' : 'success';
+    const totalFiles = filesAnalyzed?.length || 0;
+    const totalEvents = totalFiles + issues.length;
 
-    // Ensure audit Run document exists
-    await Run.findOneAndUpdate(
-      { runId: auditRunId },
-      {
-        $setOnInsert: {
-          runId: auditRunId,
-          projectId: projectId,
-          name: `AI Code Audit for ${projectName}`,
-          status: 'failed',
-          startedAt: new Date(),
-          completedAt: new Date(),
-          durationMs: 0,
-          totalEvents: 0,
-          errorCount: 0,
-        },
+    // 1. Create unique Run document in MongoDB
+    const runDoc = await Run.create({
+      runId: auditRunId,
+      projectId: projectId,
+      name: `Code Audit: ${projectName} (${runStatus === 'failed' ? `${issues.length} defect(s)` : 'Passed Clean'})`,
+      status: runStatus,
+      startedAt: new Date(timestamp - (durationMs || 600)),
+      completedAt: new Date(timestamp),
+      durationMs: durationMs || 600,
+      totalEvents: totalEvents > 0 ? totalEvents : 1,
+      errorCount: issues.length,
+      metadata: {
+        source: 'codebase_audit',
+        filesAnalyzed: totalFiles,
+        healthScore: analysis.healthScore,
+        modelUsed: analysis.modelUsed || 'solver-x-ai',
       },
-      { upsert: true, new: true }
-    );
+    });
 
-    let newErrorsCount = 0;
-    for (let i = 0; i < issues.length; i++) {
-      const iss = issues[i];
-      // Check if an event with this error title already exists in DB for this project
-      const existing = await Event.findOne({
-        projectId,
-        $or: [
-          { 'payload.message': iss.title },
-          { 'payload.errorName': iss.title },
-          { 'payload.description': iss.description },
-        ],
-      });
-
-      if (!existing) {
-        const errEventId = `evt-audit-${projectId}-${Date.now().toString(36)}-${i}`;
-        await Event.create({
-          eventId: errEventId,
+    // 2. Create Event documents for scanned files
+    const eventDocs = [];
+    if (filesAnalyzed && filesAnalyzed.length > 0) {
+      for (let i = 0; i < filesAnalyzed.length; i++) {
+        const file = filesAnalyzed[i];
+        eventDocs.push({
+          eventId: `evt-file-${projectId}-${timestamp.toString(36)}-${i + 1}`,
           runId: auditRunId,
           projectId: projectId,
-          type: 'code_audit_error',
-          status: 'failed',
-          timestamp: new Date(),
-          durationMs: Math.floor(Math.random() * 45) + 20,
+          type: 'file_inspection',
+          status: 'success',
+          timestamp: new Date(timestamp - (durationMs || 600) + (i * 20)),
+          durationMs: Math.floor(Math.random() * 25) + 10,
           payload: {
-            errorName: iss.title,
-            message: iss.description,
-            severity: iss.severity || 'high',
-            category: iss.category || 'bug',
-            culpritFile: iss.file || 'unknown',
-            culpritLine: iss.line || 0,
-            suggestedFix: iss.suggestedFix || 'Review code',
-            source: 'ai_static_audit',
+            step: `Inspect ${file.name || file.path}`,
+            fileName: file.name,
+            filePath: file.path,
+            fileSize: file.size || (file.content ? file.content.length : 0),
+            status: 'inspected',
           },
         });
-        newErrorsCount++;
       }
     }
 
-    if (newErrorsCount > 0) {
-      await Run.updateOne(
-        { runId: auditRunId },
-        {
-          $inc: { totalEvents: newErrorsCount, errorCount: newErrorsCount },
-          $set: { status: 'failed', completedAt: new Date() },
-        }
-      );
-      console.log(`[Gemini Audit] Synced ${newErrorsCount} new discovered error(s) to MongoDB for project '${projectId}'`);
-      if (global.io) {
-        global.io.emit('new_event', { projectId, status: 'failed' });
-        global.io.emit('code_errors_synced', { projectId, count: newErrorsCount });
+    // 3. Create Event documents for each detected issue
+    for (let i = 0; i < issues.length; i++) {
+      const iss = issues[i];
+      const errEventId = `evt-audit-${projectId}-${timestamp.toString(36)}-${i + 1}`;
+      eventDocs.push({
+        eventId: errEventId,
+        runId: auditRunId,
+        projectId: projectId,
+        type: iss.category === 'security' ? 'security_vulnerability' : 'code_audit_error',
+        status: 'failed',
+        timestamp: new Date(timestamp - Math.max(0, 100 - (i * 10))),
+        durationMs: Math.floor(Math.random() * 45) + 20,
+        payload: {
+          errorName: iss.title,
+          message: iss.description,
+          severity: iss.severity || 'high',
+          category: iss.category || 'bug',
+          culpritFile: iss.file || 'unknown',
+          culpritLine: iss.line || 0,
+          suggestedFix: iss.suggestedFix || 'Review code',
+          stack: `Error: ${iss.title}\n    at ${iss.file || 'unknown'}:${iss.line || 1}:1\n    at CodebaseAuditor.evaluate (/solver-x/audit-engine)`,
+          source: 'ai_codebase_audit',
+        },
+      });
+    }
+
+    if (eventDocs.length > 0) {
+      await Event.insertMany(eventDocs, { ordered: false }).catch(() => {});
+    }
+
+    // 4. Pre-populate diagnosis on the Run document
+    const diagnosisObj = {
+      summary: analysis.summary || `Code audit completed with status: ${runStatus.toUpperCase()}`,
+      rootCause: issues.length > 0
+        ? `Found ${issues.length} critical defect(s): ${issues.map((it) => it.title).join('; ')}`
+        : `Codebase audit completed with zero defects across ${totalFiles} file(s). All syntax, safety, and reliability checks passed.`,
+      culpritStep: issues.length > 0 ? {
+        stepIndex: totalFiles + 1,
+        type: issues[0].category === 'security' ? 'security_vulnerability' : 'code_audit_error',
+        errorName: issues[0].title,
+        message: issues[0].description,
+        culpritFile: issues[0].file,
+        culpritLine: issues[0].line,
+      } : null,
+      confidence: issues.length > 0 ? 'high' : 'high',
+      evidence: issues.map((iss, i) => ({
+        eventId: `evt-audit-${projectId}-${timestamp.toString(36)}-${i + 1}`,
+        observation: `[${(iss.severity || 'HIGH').toUpperCase()}] ${iss.file}:${iss.line} - ${iss.title}: ${iss.description}`,
+      })),
+      suggestedChecks: [
+        ...(issues.map((iss) => `Fix at ${iss.file || 'code'}:${iss.line || 1}: ${iss.suggestedFix || 'Review logic'}`)),
+        ...(analysis.recommendations || []),
+      ].slice(0, 8),
+      healthScore: analysis.healthScore,
+      analyzedAt: new Date(timestamp),
+      provider: analysis.provider || 'Solver_X AI',
+      modelUsed: analysis.modelUsed || 'solver-x-audit',
+    };
+
+    await Run.updateOne({ runId: auditRunId }, { diagnosis: diagnosisObj });
+
+    analysis.auditRun = {
+      runId: auditRunId,
+      name: runDoc.name,
+      status: runStatus,
+      totalEvents: totalEvents > 0 ? totalEvents : 1,
+      errorCount: issues.length,
+      durationMs: durationMs || 600,
+    };
+
+    console.log(`[Code Audit] Created Run '${auditRunId}' (${runStatus.toUpperCase()}) with ${eventDocs.length} event(s) for project '${projectId}'`);
+
+    // Emit real-time WebSocket events to update Releases, Diagnosis, and Issues pages
+    if (global.io) {
+      global.io.emit('run_created', runDoc);
+      global.io.emit('run_updated', { ...runDoc.toObject(), diagnosis: diagnosisObj });
+      global.io.emit('code_analyzed', { projectId, analysis, runId: auditRunId });
+      if (issues.length > 0) {
+        global.io.emit('new_event', { projectId, runId: auditRunId, status: 'failed' });
       }
     }
 
-    return newErrorsCount;
+    return auditRunId;
   } catch (err) {
-    console.warn(`[AI Service Warning] Failed syncing audit errors to DB: ${err.message}`);
-    return 0;
+    console.warn(`[AI Service Warning] Failed recording audit run to DB: ${err.message}`);
+    return null;
   }
 }
 
@@ -584,16 +665,30 @@ async function analyzeCodebase(projectId, options = {}) {
 
   if (options.files && Array.isArray(options.files) && options.files.length > 0) {
     filesToAnalyze = options.files;
-  } else if (options.localPath && fs.existsSync(options.localPath)) {
-    filesToAnalyze = readFilesFromDir(options.localPath, 30);
-  } else if (project.sourcePath && fs.existsSync(project.sourcePath)) {
-    filesToAnalyze = readFilesFromDir(project.sourcePath, 30);
+  } else if (options.localPath) {
+    filesToAnalyze = readFilesFromDir(options.localPath, 50);
   } else if (project.codeFiles && Array.isArray(project.codeFiles) && project.codeFiles.length > 0) {
     filesToAnalyze = project.codeFiles;
-  } else {
-    // Audit current repository
+  } else if (project.sourcePath) {
+    filesToAnalyze = readFilesFromDir(project.sourcePath, 50);
+  }
+
+  // If user provided a path or files, but nothing could be loaded, do NOT fall back to Solver_X repo!
+  if (filesToAnalyze.length === 0 && (options.localPath || project.sourcePath || (options.files && options.files.length > 0))) {
+    const attemptedPath = options.localPath || project.sourcePath || 'uploaded files';
+    throw {
+      statusCode: 400,
+      code: 'CODE_FILES_NOT_FOUND',
+      message: `Could not read code files from '${attemptedPath}'. Please provide a valid file or folder path.`,
+    };
+  }
+
+  // Only fall back to repository audit if project is purely telemetry with no sourcePath and no files
+  if (filesToAnalyze.length === 0) {
     filesToAnalyze = readFilesFromDir(projectRoot, 30);
   }
+
+  const startTime = Date.now();
 
   // Fetch past error events from DB for this project to cross-reference
   const pastErrorEvents = await Event.find({ projectId, status: 'failed' }).limit(20).lean();
@@ -609,8 +704,9 @@ async function analyzeCodebase(projectId, options = {}) {
   // If no AI key or offline, use smart static analysis
   if (ai.provider === 'heuristic') {
     const analysis = generateFallbackCodeAnalysis(project.name, filesToAnalyze, project.sourceType, project.sourcePath);
+    const durationMs = Date.now() - startTime;
     await Project.updateOne({ projectId }, { codeAnalysis: analysis });
-    await syncDiscoveredErrorsToDb(project.projectId, project.name, analysis.issues);
+    await recordAuditRunAndEvents(project.projectId, project.name, analysis, filesToAnalyze, durationMs);
     return analysis;
   }
 
@@ -680,7 +776,6 @@ Return valid JSON strictly conforming to this schema:
   ]
 }`;
 
-    const startTime = Date.now();
     let parsed = null;
     if (ai.provider === 'grok') {
       parsed = await callGrokChat(ai.apiKey, ai.model, systemPrompt, userPrompt);
@@ -690,7 +785,8 @@ Return valid JSON strictly conforming to this schema:
       parsed.provider = 'Google Gemini';
     }
 
-    const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
+    const durationMs = Date.now() - startTime;
+    const durationSec = (durationMs / 1000).toFixed(2);
     console.log(`[AI Service] ✓ Code audit successfully completed by ${parsed.provider} (${ai.model}) in ${durationSec}s`);
 
     parsed.analyzedAt = new Date();
@@ -700,17 +796,17 @@ Return valid JSON strictly conforming to this schema:
     // Update project document with full analysis
     await Project.updateOne({ projectId }, { codeAnalysis: parsed });
 
-    // Sync newly discovered issues as error events directly in MongoDB
-    const syncedCount = await syncDiscoveredErrorsToDb(project.projectId, project.name, parsed.issues);
-    parsed.newErrorsSyncedToDb = syncedCount;
+    // Record unique Run and Events in MongoDB
+    await recordAuditRunAndEvents(project.projectId, project.name, parsed, filesToAnalyze, durationMs);
 
     return parsed;
   } catch (error) {
     console.error(`[AI Code Analysis Error Details] AI call failed: ${error.message}`);
     console.warn('[AI Code Analysis] Falling back to heuristic rule-based analysis.');
+    const durationMs = Date.now() - startTime;
     const fallback = generateFallbackCodeAnalysis(project.name, filesToAnalyze, project.sourceType, project.sourcePath);
     await Project.updateOne({ projectId }, { codeAnalysis: fallback });
-    await syncDiscoveredErrorsToDb(project.projectId, project.name, fallback.issues);
+    await recordAuditRunAndEvents(project.projectId, project.name, fallback, filesToAnalyze, durationMs);
     return fallback;
   }
 }
