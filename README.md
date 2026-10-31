@@ -1,833 +1,465 @@
-﻿# DevTrace AI --- Project Plan and Team Division
+# Solver_X — Intelligent Application Observability & AI Run Failure Diagnosis
 
-## Track 3: Developer Tools for Production Use Cases
+[![Status](https://img.shields.io/badge/Status-Production%20Ready-emerald.svg)]()
+[![Stack](https://img.shields.io/badge/Stack-React%2019%20%7C%20Node.js%20%7C%20Express%20%7C%20MongoDB-purple.svg)]()
+[![AI Engine](https://img.shields.io/badge/AI%20Engine-Google%20Gemini%20%7C%20xAI%20Grok-indigo.svg)]()
+[![Realtime](https://img.shields.io/badge/Realtime-Socket.IO%20%7C%20Change%20Streams-blue.svg)]()
 
-**Project:** DevTrace AI\
-**Purpose:** Help developers understand why an application or AI-agent
-run failed by collecting execution events, comparing runs, and
-generating an evidence-based diagnosis.
+> **Solver_X** is an enterprise-grade developer platform that accelerates debugging and root-cause analysis for modern distributed applications and AI agent pipelines. It records granular execution events in MongoDB, compares baseline vs failing runs with differential trace matrices, and leverages LLMs (Google Gemini / xAI Grok) to generate evidence-backed failure diagnoses and automated remediations.
 
-**Team size:** 3 members\
-**Suggested stack:** React + Vite + Tailwind CSS, Node.js + Express,
-MongoDB Atlas, Gemini API.
+---
 
-------------------------------------------------------------------------
+## Table of Contents
 
-# 1. Project overview
+1. [Project Overview](#1-project-overview)
+2. [Complete End-to-End Workflow](#2-complete-end-to-end-workflow)
+3. [Key Technologies](#3-key-technologies)
+4. [System Architecture](#4-system-architecture)
+5. [Platform Modules & Capabilities](#5-platform-modules--capabilities)
+6. [Getting Started & Setup Guide](#6-getting-started--setup-guide)
+7. [Developer SDK Integration](#7-developer-sdk-integration)
+8. [Automated Codebase Auditing](#8-automated-codebase-auditing)
+9. [Pre-built Demo Scenarios](#9-pre-built-demo-scenarios)
+10. [REST API Reference](#10-rest-api-reference)
+11. [Troubleshooting & FAQ](#11-troubleshooting--faq)
 
-## Problem
+---
 
-When an application fails, developers often inspect logs, API calls,
-database operations, and errors manually. This takes time and makes it
-difficult to understand exactly where a run failed.
+## 1. Project Overview
 
-## Solution
+### The Problem
+Modern distributed systems, asynchronous microservices, and autonomous AI agents fail in complex ways:
+- **Scattered Logs**: Diagnosing issues requires stitching together log files, HTTP traces, and database telemetry across multiple systems.
+- **Silent Degradations**: Synchronous I/O blocks, null dereferences, and uncaught promise rejections cause silent stalls or high tail latency before crashing.
+- **Lack of Baseline Divergence**: Developers rarely have an immediate side-by-side comparison between the last successful execution run and the current broken run.
+- **Hallucinated Diagnostics**: Generic AI chat interfaces lack direct access to raw execution event traces and error stack frames, resulting in inaccurate suggestions.
 
-DevTrace AI records application runs and their events, stores them in
-MongoDB, compares successful and failed runs, and uses an LLM to explain
-the likely cause with supporting evidence.
+### The Solution: Solver_X
+Solver_X eliminates manual log digging by providing an end-to-end observability pipeline:
+1. **Telemetry Ingestion**: Micro-SDKs and REST APIs record every step of execution into MongoDB Atlas with guaranteed duplicate-event deduplication.
+2. **Static & Runtime Code Auditing**: Directly scans local folders or uploaded repositories to detect defects, security vulnerabilities, and blocking operations.
+3. **Differential Trace Matrix**: Compares any baseline run against a target run side-by-side to highlight the exact step where timing, status, or payloads diverged.
+4. **Evidence-Based AI Diagnosis**: Passes sanitized event traces to Google Gemini or xAI Grok to output structured root-cause explanations tied to specific event IDs and code line numbers.
+5. **Real-Time Live Dashboard**: Updates metrics, graphs, bug issue trackers, and release history instantly using Socket.IO WebSockets.
 
-## Main question
+---
 
-**Why did this application run fail, and what changed compared with a
-successful run?**
+## 2. Complete End-to-End Workflow
 
-## Main features
-
-1.  Project registration.
-2.  Run tracking.
-3.  Event collection through an API or JavaScript SDK.
-4.  MongoDB storage for projects, runs, and events.
-5.  Run history and event timeline.
-6.  Successful/failed run status.
-7.  Comparison between two runs.
-8.  Duplicate-event protection.
-9.  Required-field validation.
-10. AI-generated failure explanation and suggested checks.
-
-Optional features: live dashboard updates, analytics charts, diagnosis
-export, and CLI support.
-
-------------------------------------------------------------------------
-
-# 2. Technology stack
-
-  -----------------------------------------------------------------------
-  Part                    Technology              Purpose
-  ----------------------- ----------------------- -----------------------
-  Frontend                React + Vite            Dashboard
-
-  Styling                 Tailwind CSS            UI design
-
-  Charts                  Recharts                Run analytics
-
-  Backend                 Node.js + Express       REST APIs
-
-  Database                MongoDB Atlas           Store runs and events
-
-  LLM                     Gemini API              Failure diagnosis
-
-  Live updates            MongoDB Change          Optional real-time
-                          Streams + Socket.IO     updates
-
-  API testing             Postman                 Test endpoints
-
-  Version control         GitHub                  Team collaboration
-
-  Frontend deployment     Vercel                  Host frontend
-
-  Backend deployment      Render or another       Host backend
-                          available host          
-  -----------------------------------------------------------------------
-
-Keep the Gemini API key in the backend environment variables. Never
-expose it in frontend code.
-
-------------------------------------------------------------------------
-
-# 3. System architecture
-
-``` text
-Sample App / Developer App
-          |
-          v
- DevTrace JavaScript SDK
-          |
-          | Send run and event data
-          v
-    Express Backend
-          |
-          +------ Validate required fields
-          |
-          +------ Prevent duplicate event IDs
-          |
-          v
-       MongoDB
-    projects / runs / events
-          |
-          v
-   Analysis Service
-   - run comparison
-   - failure detection
-   - duration calculation
-          |
-          v
-      Gemini API
-   - root cause explanation
-   - evidence
-   - suggested checks
-          |
-          v
-     React Dashboard
+```mermaid
+flowchart TD
+    A[Client App / AI Agent / Code Source] -->|SDK Tracing or Code Path| B[Solver_X API Ingestion]
+    B -->|Schema Validation & Dedup| C[(MongoDB Atlas)]
+    C -->|Store Runs & Events| D[Telemetry & Audit Engine]
+    
+    D --> E{User Actions}
+    
+    E -->|View Metrics| F[Dashboard & Performance Analytics]
+    E -->|Compare Releases| G[Differential Sequence Comparison Matrix]
+    E -->|Audit Codebase| H[Static & Runtime Error Detection]
+    E -->|Diagnose Failure| I[AI Root Cause Diagnosis Engine]
+    
+    I -->|Sanitized Events & Stack| J[Google Gemini / xAI Grok / Heuristic]
+    J -->|Structured JSON| K[Root Cause + Event Evidence + Code Fix]
+    
+    K --> L[Real-Time WebSocket Sync to UI]
+    G --> L
+    F --> L
 ```
 
-------------------------------------------------------------------------
+### Step-by-Step Workflow Breakdown
 
-# 4. Division of work among 3 members
+1. **Project Registration**:
+   - Register a software service or AI agent with an ID, name, and source reference (telemetry, local path, or uploaded code files).
 
-The team must agree on the event format and API contract before working
-separately. Each member owns one main part of the project.
+2. **Run Lifecycle Tracking**:
+   - An execution run is initiated via `devtrace.startRun({ projectId, name })`.
+   - Each operation (database query, third-party API call, auth check, file read) emits an event via `devtrace.track()`.
+   - The run completes with `devtrace.endRun(runId, 'success' | 'failed')`.
 
-## Member 1 --- Backend and MongoDB
+3. **Validation & Deduplication**:
+   - The Express backend enforces required fields (`eventId`, `runId`, `projectId`, `type`, `status`).
+   - MongoDB unique compound indexes prevent duplicate events from polluting telemetry.
 
-**Main responsibility:** Build the backend, store project history, and
-analyze runs.
+4. **Codebase Static & Runtime Audit**:
+   - When a project folder or file path is submitted, the backend recursively inspects user code files.
+   - Detects hardcoded credentials, blocking synchronous I/O, unsafe null dereferences, and empty catch blocks.
+   - Automatically registers a unique audit run (`audit-<projectId>-<timestamp>`) marked as `success` (clean) or `failed` (defects detected).
 
-### Tasks
+5. **Differential Trace Comparison (`/compare`)**:
+   - Select any baseline run (Run 1) and target run (Run 2).
+   - Solver_X computes duration differences, event delta, and step-by-step sequence matching to isolate divergences.
+   - Selections remain stable across project changes, with full execution history displayed below.
 
-1.  Set up Node.js and Express.
-2.  Connect MongoDB Atlas.
-3.  Create Project, Run, and Event models.
-4.  Add required-field validation.
-5.  Create a unique index for `eventId`.
-6.  Implement project APIs.
-7.  Implement run creation and update APIs.
-8.  Implement event ingestion APIs.
-9.  Implement run history and event retrieval APIs.
-10. Write aggregation pipelines for analytics.
-11. Implement run comparison logic.
-12. Handle duplicate events and invalid input.
-13. Share API request/response formats with Members 2 and 3.
+6. **AI Root Cause Diagnosis (`/diagnosis`)**:
+   - Evaluates the failing run's sequence and error stack traces using Google Gemini, xAI Grok, or the built-in offline heuristic engine.
+   - Outputs:
+     - **Summary**: Plain-English executive briefing.
+     - **Root Cause**: The verified culprit causing the failure.
+     - **Evidence**: Event IDs and exact observations supporting the finding.
+     - **Suggested Fixes**: Concrete code patches and operational steps.
 
-### Suggested backend structure
+7. **Real-Time Visualization**:
+   - WebSockets broadcast `new_event`, `run_created`, `run_updated`, and `code_analyzed` to keep all open browser sessions in sync.
 
-``` text
-backend/
-  src/
-    config/
-      db.js
-    models/
-      Project.js
-      Run.js
-      Event.js
-    routes/
-      project.routes.js
-      run.routes.js
-      event.routes.js
-      analysis.routes.js
-    controllers/
-    services/
-      comparison.service.js
-      analytics.service.js
-    middleware/
-      error.middleware.js
-    server.js
-  package.json
+---
+
+## 3. Key Technologies
+
+| Layer | Technology | Version | Purpose |
+|---|---|---|---|
+| **Frontend UI** | React | 19.x | Component-based modern UI architecture |
+| **Build Tool** | Vite | 6.x | Fast development server and optimized bundle generation |
+| **Styling** | Tailwind CSS | 3.4.x | Dark-mode design system and layout styling |
+| **Icons** | Lucide React | Latest | Consistent vector iconography |
+| **Charts** | Recharts | 3.x | Latency trends, timeline distributions, and health gauges |
+| **Backend Server** | Node.js + Express | 20.x / 4.21.x | REST API server, validation middleware, and telemetry intake |
+| **Database** | MongoDB Atlas | 7.x / 8.x | Document storage for Projects, Runs, and Events |
+| **ODM** | Mongoose | 8.9.x | Schema validation, unique indexing, and aggregation pipelines |
+| **Realtime** | Socket.IO | 4.8.x | Bi-directional WebSocket communication for live telemetry |
+| **AI LLM Engine** | Google Gemini API | `@google/generative-ai` | Primary failure diagnostics and codebase auditing |
+| **Alternative AI** | xAI Grok API | OpenAI-compatible REST | Ultra-low latency deep diagnostic reasoning |
+| **Fallback AI** | Heuristic Static Engine | Native JS AST/Regex | 100% offline analysis ensuring zero downtime |
+| **Client SDK** | DevTrace SDK | 1.0.0 | Lightweight Node.js client library for application instrumentation |
+
+---
+
+## 4. System Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    Developer Applications                   │
+│   (Express Apps, Microservices, Python Scripts, AI Agents)   │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                SDK Telemetry & REST Requests
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Solver_X Express Backend                  │
+│                                                             │
+│  ┌───────────────────────┐     ┌─────────────────────────┐  │
+│  │ Ingestion Controller  │     │   Code Audit Engine     │  │
+│  │ - Validation Guards   │     │   - Multi-path Scanner  │  │
+│  │ - Deduplication Check │     │   - Static AST Analyzer │  │
+│  └───────────┬───────────┘     └────────────┬────────────┘  │
+│              │                              │               │
+│              ▼                              ▼               │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │           Mongoose Schema & Indexing Layer            │  │
+│  │          Projects  |  Runs  |  Events Collection      │  │
+│  └───────────────────────────┬───────────────────────────┘  │
+│                              │                              │
+│              ┌───────────────┴───────────────┐              │
+│              ▼                               ▼              │
+│  ┌───────────────────────┐     ┌─────────────────────────┐  │
+│  │ Comparison Service    │     │ AI Diagnosis Service    │  │
+│  │ - Trace Diff Engine   │     │ - Data Sanitizer        │  │
+│  │ - Failure Divergence  │     │ - Gemini & Grok Client  │  │
+│  └───────────────────────┘     │ - Heuristic Fallback    │  │
+│                                └─────────────────────────┘  │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                      WebSocket & REST API
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Solver_X Dashboard                      │
+│   Dashboard  |  Issues  |  Performance  |  Discover         │
+│   Releases & Compare  |  AI Diagnosis  |  Projects & Code   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Deliverables
+---
 
--   Backend starts successfully.
--   MongoDB connection works.
--   Projects, runs, and events can be stored.
--   Duplicate event IDs are not stored twice.
--   Invalid events are rejected.
--   Run comparison API works.
--   Analytics API returns useful values.
+## 5. Platform Modules & Capabilities
 
-------------------------------------------------------------------------
+### 📊 1. Dashboard (`/`)
+- High-level telemetry metrics: total execution runs, failure rates, total events collected, and overall system health score.
+- Active project status cards and live execution activity feed.
+- Status distribution chart (Successful vs. Failed runs).
 
-## Member 2 --- JavaScript SDK and LLM diagnosis
+### ⚠️ 2. Issues & Bug Tracker (`/issues`)
+- Categorized defect tracking: Security Vulnerabilities, Runtime Errors, Null Pointer Risks, and Blocking I/O.
+- Culprit breakdown with exact file name, line number, severity level (`critical`, `high`, `medium`, `low`), and suggested fix.
+- Interactive status filter (Open, In Progress, Resolved).
 
-**Main responsibility:** Capture application activity and generate an
-explanation for failures.
+### ⚡ 3. Performance & Bottlenecks (`/performance`)
+- Real-time anchored latency timeline graphs displaying milliseconds latency across actual timestamps.
+- **P50 Latency (Median)**, **P95 Latency (Tail)**, and **Average Latency** metrics calculated from execution events.
+- Dedicated **Bug Issues Section** located directly beneath stats for consolidated triaging.
 
-### Tasks
+### 🔍 4. Discover Telemetry Explorer (`/discover`)
+- Low-level telemetry search and exploration across all recorded events.
+- Filter by Event Type, Status (`success`, `failed`, `info`, `warning`), Project, or Run ID.
+- Expandable JSON payload viewer with syntax formatting.
 
-1.  Design a small JavaScript SDK.
-2.  Implement `startRun()`.
-3.  Implement `track()`.
-4.  Implement `endRun()`.
-5.  Generate stable run IDs and event IDs.
-6.  Send events to Member 1's backend.
-7.  Capture errors and execution duration.
-8.  Create a sample application with success and failure scenarios.
-9.  Integrate Gemini API in the backend.
-10. Prepare a prompt for root-cause analysis.
-11. Return structured JSON containing summary, root cause, evidence,
-    suggested checks, and confidence.
-12. Handle LLM timeout and invalid responses.
-13. Ensure the SDK does not crash the sample application if DevTrace is
-    unavailable.
+### 🚀 5. Releases & Run Comparison (`/compare`)
+- **Differential Trace Comparison**: Compare Baseline (Run 1) vs Target (Run 2).
+- **Sequence Comparison Matrix**: Step-by-step table highlighting where event types, statuses, or durations diverged.
+- **Stable Project Selection**: Switching projects in the navbar preserves your selected Baseline and Target runs.
+- **Execution & Audit History Table**: Chronological table of all trace and audit runs with status badges (`SUCCESS` / `FAILED`), duration, and quick-action buttons:
+  - `Set Baseline`
+  - `Set Target`
+  - `Diagnose with AI`
 
-### Example SDK usage
+### 🧠 6. AI Root Cause Diagnosis (`/diagnosis`)
+- Deep root-cause diagnostic reports generated by Google Gemini or xAI Grok.
+- Isolates the exact culprit step, supporting event evidence IDs, confidence score, and verified suggested checks.
+- Deep-links directly from Releases or Projects (`/diagnosis?runId=...`).
+- Built-in heuristic fallback engine guarantees debugging never fails even if external LLM APIs are offline.
 
-``` javascript
-const devtrace = require("./devtrace");
+### 📁 7. Projects & Codebase Diagnosis (`/projects`)
+- Register and configure telemetry projects, local directories, or file uploads.
+- **Analyze Code with AI**: Recursively scans local paths (e.g. `test-code/project-with-errors/index.js`) or uploaded files.
+- Automatically generates real execution `Run` and `Event` documents in MongoDB so code audits are fully auditable, comparable, and diagnosable across the entire platform.
 
-const run = await devtrace.startRun({
-  projectId: "demo-project",
-  name: "user-search"
-});
+### ❓ 8. Help Station (`/help`)
+- Interactive platform user guide detailing each module and best practices.
+- Copy-paste ready SDK instrumentation snippets for Node.js and Express.
+- Architecture reference and error scenario cheat sheet.
 
-try {
-  await devtrace.track({
-    runId: run.runId,
-    type: "database_query",
-    status: "success",
-    payload: {
-      operation: "find",
-      collection: "users"
-    }
+---
+
+## 6. Getting Started & Setup Guide
+
+### Prerequisites
+- **Node.js**: v18.0.0 or higher (`node -v`)
+- **npm**: v9.0.0 or higher (`npm -v`)
+- **MongoDB**: MongoDB Atlas connection URI or local MongoDB instance running at `mongodb://localhost:27017`
+- *(Optional)* **Google Gemini API Key** or **xAI Grok API Key** for LLM diagnosis
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/your-username/Solver_X.git
+cd Solver_X
+```
+
+### 2. Install All Dependencies
+Install root, backend, frontend, sdk, and sample app dependencies in one command:
+```bash
+npm run install:all
+```
+
+Alternatively, install each package individually:
+```bash
+npm install
+cd backend && npm install && cd ..
+cd frontend && npm install && cd ..
+cd sdk && npm install && cd ..
+cd sample-app && npm install && cd ..
+```
+
+### 3. Configure Environment Variables
+Copy `.env.example` into `backend/.env`:
+```bash
+cp .env.example backend/.env
+```
+
+Edit `backend/.env` with your preferred settings:
+```env
+# Backend Server
+PORT=5001
+NODE_ENV=development
+
+# MongoDB Connection String
+MONGODB_URI=mongodb://localhost:27017/devtrace
+# For MongoDB Atlas:
+# MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.abcde.mongodb.net/devtrace?retryWrites=true&w=majority
+
+# AI Provider Configuration (Google Gemini or xAI Grok)
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
+
+# (Alternative) xAI Grok API Key:
+# GROK_API_KEY=your_xai_grok_key_here
+# GROK_MODEL=grok-2-latest
+
+# Client URL (for CORS)
+CLIENT_URL=http://localhost:5173
+```
+
+Frontend environment configuration (`frontend/.env`):
+```env
+VITE_API_BASE_URL=http://localhost:5001/api
+VITE_SOCKET_URL=http://localhost:5001
+```
+
+### 4. Run Development Servers
+Start both backend and frontend concurrently:
+```bash
+npm run dev
+```
+
+- **Backend API**: `http://localhost:5001/api`
+- **Frontend Dashboard**: `http://localhost:5173`
+- **Health Check**: `http://localhost:5001/api/health`
+
+---
+
+## 7. Developer SDK Integration
+
+The official SDK (`sdk/`) enables seamless telemetry instrumentation in your application with minimal code.
+
+### Installation
+Link the local package or install from npm:
+```bash
+npm install devtrace-sdk
+```
+
+### Basic Instrumentation Example
+```javascript
+const devtrace = require("devtrace-sdk");
+
+async function executeOrderWorkflow(orderData) {
+  // 1. Start execution lifecycle
+  const run = await devtrace.startRun({
+    projectId: "ecommerce-backend",
+    name: "checkout-order-pipeline",
   });
 
-  await devtrace.endRun(run.runId, "success");
-} catch (error) {
-  await devtrace.track({
-    runId: run.runId,
-    type: "database_query",
-    status: "failed",
-    payload: {
-      message: error.message
-    }
-  });
+  try {
+    // 2. Track successful database operation
+    await devtrace.track({
+      runId: run.runId,
+      type: "database_query",
+      status: "success",
+      durationMs: 42,
+      payload: {
+        collection: "orders",
+        action: "insert",
+        orderId: orderData.id,
+      },
+    });
 
-  await devtrace.endRun(run.runId, "failed");
-}
-```
+    // 3. Track external payment gateway call
+    await devtrace.track({
+      runId: run.runId,
+      type: "external_api_call",
+      status: "success",
+      durationMs: 180,
+      payload: {
+        endpoint: "https://api.stripe.com/v1/charges",
+        amount: orderData.total,
+      },
+    });
 
-This is an example interface. Adjust it to match the agreed backend API
-contract.
+    // 4. Mark run completed successfully
+    await devtrace.endRun(run.runId, "success");
+    return { success: true };
+  } catch (error) {
+    // 5. Track failure event with error message and stack trace
+    await devtrace.track({
+      runId: run.runId,
+      type: "payment_processing_error",
+      status: "failed",
+      durationMs: 15,
+      payload: {
+        errorName: error.name,
+        message: error.message,
+        stack: error.stack,
+      },
+    });
 
-### Example AI diagnosis output
-
-``` json
-{
-  "summary": "The run failed during the database query.",
-  "rootCause": "The database connection timed out.",
-  "evidence": [
-    {
-      "eventId": "event-203",
-      "observation": "The database_query event has failed status."
-    }
-  ],
-  "suggestedChecks": [
-    "Verify the MongoDB connection string.",
-    "Check database availability and network access.",
-    "Review connection timeout settings."
-  ],
-  "confidence": "medium"
-}
-```
-
-The AI must separate confirmed evidence from possible causes. It must
-not invent missing facts.
-
-### Suggested structure
-
-``` text
-sdk/
-  src/
-    index.js
-    client.js
-    ids.js
-  package.json
-
-sample-app/
-  success.js
-  failure.js
-  duplicate-event.js
-```
-
-### Deliverables
-
--   SDK can start and finish runs.
--   SDK sends events to the backend.
--   Sample success and failure scenarios work.
--   Gemini diagnosis works.
--   Diagnosis includes event evidence.
--   LLM failure does not break the core debugging tool.
-
-------------------------------------------------------------------------
-
-## Member 3 --- Frontend and dashboard
-
-**Main responsibility:** Build the developer dashboard and connect it to
-the backend.
-
-### Tasks
-
-1.  Set up React and Vite.
-2.  Set up Tailwind CSS.
-3.  Create dashboard layout and navigation.
-4.  Build project overview page.
-5.  Build run history page.
-6.  Display successful and failed run status.
-7.  Build run details page.
-8.  Display event timeline.
-9.  Build run comparison page.
-10. Display AI diagnosis and suggested fixes.
-11. Connect frontend to Member 1's APIs.
-12. Use mock JSON data while APIs are being developed.
-13. Add loading, empty, and error states.
-14. Prepare a clean demo experience.
-
-### Required pages
-
-  Page           What it displays
-  -------------- --------------------------------------------------------
-  Overview       Total runs, success rate, failed runs, recent activity
-  Run History    List of runs, status, time, duration
-  Run Details    Event timeline and error details
-  Compare Runs   Differences between two selected runs
-  AI Diagnosis   Root cause, evidence, and suggested checks
-
-### Suggested frontend structure
-
-``` text
-frontend/
-  src/
-    components/
-      Navbar.jsx
-      Sidebar.jsx
-      StatCard.jsx
-      RunTable.jsx
-      EventTimeline.jsx
-      DiagnosisCard.jsx
-    pages/
-      Dashboard.jsx
-      RunHistory.jsx
-      RunDetails.jsx
-      CompareRuns.jsx
-      Diagnosis.jsx
-    services/
-      api.js
-    App.jsx
-  package.json
-```
-
-### Deliverables
-
--   Dashboard loads.
--   Run history is visible.
--   Run details and event timeline work.
--   Two runs can be compared.
--   AI diagnosis is displayed clearly.
--   Loading and error states are handled.
-
-------------------------------------------------------------------------
-
-# 5. How the three members connect their work
-
-``` text
-Member 2: SDK + Sample App
-          |
-          | Sends events
-          v
-Member 1: Express Backend + MongoDB
-          |
-          | Provides REST APIs and run data
-          v
-Member 3: React Dashboard
-
-Member 1: Run data and comparison
-          |
-          v
-Member 2: Gemini diagnosis service
-          |
-          v
-Member 1: Stores/returns diagnosis
-          |
-          v
-Member 3: Displays diagnosis
-```
-
-### Integration rules
-
--   Member 1 shares the API contract early.
--   Member 2 uses the agreed event format.
--   Member 3 uses mock data until backend APIs are ready.
--   All members use the same project ID, run ID, and event ID formats.
--   Merge small working changes regularly.
--   Keep `main` stable and test before merging.
-
-------------------------------------------------------------------------
-
-# 6. Shared API contract
-
-Member 1 owns the final API implementation. All members must use the
-same request and response formats.
-
-## Project example
-
-``` json
-{
-  "projectId": "demo-project",
-  "name": "Demo AI Assistant",
-  "description": "Sample application used for DevTrace demo"
-}
-```
-
-## Start run example
-
-``` json
-{
-  "projectId": "demo-project",
-  "name": "question-answer"
-}
-```
-
-## Event example
-
-``` json
-{
-  "eventId": "event-001",
-  "projectId": "demo-project",
-  "runId": "run-001",
-  "type": "llm_call",
-  "status": "success",
-  "timestamp": "2026-10-30T10:00:00.000Z",
-  "durationMs": 850,
-  "payload": {
-    "model": "gemini",
-    "operation": "generate"
+    // 6. Mark run failed
+    await devtrace.endRun(run.runId, "failed");
+    throw error;
   }
 }
 ```
 
-## Finish run example
+---
 
-``` json
-{
-  "status": "failed",
-  "completedAt": "2026-10-30T10:00:05.000Z"
-}
+## 8. Automated Codebase Auditing
+
+Solver_X includes a static analysis and vulnerability auditor capable of scanning real codebases.
+
+### Testing Pre-built Code Samples
+Two test projects are provided in `test-code/`:
+- `test-code/project-with-errors/index.js`: Contains 4 real-world defects (hardcoded API key, blocking `readFileSync`, null pointer dereference, empty catch block).
+- `test-code/project-clean/index.js`: Clean asynchronous implementation adhering to security and performance best practices.
+
+### Running an Audit via the Dashboard
+1. Navigate to **Projects** (`/projects`).
+2. Click **Create Project**.
+3. Select **Source Type: Local Path** and input `test-code/project-with-errors`.
+4. Click **Create & Audit Codebase with AI**.
+5. Solver_X parses the code, identifies all 4 defects, records an audit `Run` document with `status: failed`, and emits error events to the **Issues** and **Releases** pages.
+6. Open **Releases** (`/compare`) to compare the audit run with `project-clean` or view the **AI Diagnosis** (`/diagnosis`).
+
+---
+
+## 9. Pre-built Demo Scenarios
+
+Run interactive demo scenarios to verify the entire platform lifecycle:
+
+```bash
+# Run all demo scenarios in sequence:
+npm run demo
+# or
+node sample-app/run-all.js
 ```
 
-## Suggested endpoints
-
-  --------------------------------------------------------------------------------------------
-  Method            Endpoint                               Purpose           Owner
-  ----------------- -------------------------------------- ----------------- -----------------
-  POST              `/api/projects`                        Create project    Member 1
-
-  GET               `/api/projects`                        List projects     Member 1
-
-  POST              `/api/runs`                            Create run        Member 1
-
-  PATCH             `/api/runs/:runId`                     Finish/update run Member 1
-
-  GET               `/api/runs/:runId`                     Get run details   Member 1
-
-  GET               `/api/projects/:projectId/runs`        List project runs Member 1
-
-  POST              `/api/events`                          Store one event   Member 1
-
-  POST              `/api/events/batch`                    Store multiple    Member 1
-                                                           events            
-
-  GET               `/api/runs/:runId/events`              Get event         Member 1
-                                                           timeline          
-
-  GET               `/api/compare/:runId1/:runId2`         Compare two runs  Member 1
-
-  GET               `/api/projects/:projectId/analytics`   Project metrics   Member 1
-
-  POST              `/api/diagnosis/:runId`                Generate          Member 2,
-                                                           diagnosis         integrated by
-                                                                             Member 1
-  --------------------------------------------------------------------------------------------
-
-Use a consistent success response:
-
-``` json
-{
-  "success": true,
-  "data": {},
-  "message": "Operation completed"
-}
-```
-
-Use a consistent error response:
-
-``` json
-{
-  "success": false,
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "eventId is required"
-  }
-}
-```
-
-------------------------------------------------------------------------
-
-# 7. MongoDB database design
-
-Use three main collections.
-
-## Collection: projects
-
-``` javascript
-{
-  _id: ObjectId,
-  projectId: "demo-project",
-  name: "Demo AI Assistant",
-  description: "Sample project",
-  createdAt: ISODate()
-}
-```
-
-## Collection: runs
-
-``` javascript
-{
-  _id: ObjectId,
-  runId: "run-001",
-  projectId: "demo-project",
-  name: "question-answer",
-  status: "failed",
-  startedAt: ISODate(),
-  completedAt: ISODate(),
-  durationMs: 5200,
-  totalEvents: 4,
-  errorCount: 1
-}
-```
-
-## Collection: events
-
-``` javascript
-{
-  _id: ObjectId,
-  eventId: "event-001",
-  projectId: "demo-project",
-  runId: "run-001",
-  type: "database_query",
-  status: "failed",
-  timestamp: ISODate(),
-  durationMs: 5000,
-  payload: {
-    operation: "find",
-    message: "Connection timeout"
-  }
-}
-```
-
-## MongoDB features required by the challenge
-
-### Unique index
-
-``` javascript
-db.events.createIndex(
-  { eventId: 1 },
-  { unique: true }
-);
-```
-
-This prevents two documents with the same event ID. Catch duplicate-key
-error `E11000` and return a clear response.
-
-### Query indexes
-
-``` javascript
-db.events.createIndex({
-  projectId: 1,
-  runId: 1,
-  timestamp: 1
-});
-
-db.runs.createIndex({
-  projectId: 1,
-  startedAt: -1
-});
-```
-
-### Schema validation
-
-Require fields such as `eventId`, `projectId`, `runId`, `type`,
-`status`, and `timestamp`. Keep `payload` flexible because each event
-type can contain different details.
-
-### Aggregation
-
-Use aggregation pipelines to calculate:
-
--   Total runs.
--   Successful runs.
--   Failed runs.
--   Average run duration.
--   Failure count by event type.
--   Recent run activity.
-
-### Change Streams
-
-If time permits, watch the events collection and send updates to the
-dashboard using Socket.IO. Test this with a MongoDB Atlas deployment
-that supports change streams.
-
-------------------------------------------------------------------------
-
-# 8. AI diagnosis design
-
-Use Gemini from the backend. Send the relevant run and event
-information, not the entire database.
-
-## Suggested prompt
-
-``` text
-You are a software debugging assistant.
-
-Analyze the supplied application run and event history.
-
-Your tasks:
-1. Identify the first important failure.
-2. Explain the likely root cause in simple language.
-3. Point to the exact event IDs that support your finding.
-4. Suggest practical checks or fixes.
-5. Separate confirmed evidence from assumptions.
-6. Do not invent missing logs, configuration, or facts.
-
-Return valid JSON with:
-- summary
-- rootCause
-- evidence
-- suggestedChecks
-- confidence
-
-Run data:
-{{RUN_DATA}}
-
-Event history:
-{{EVENTS}}
-```
-
-Protect API keys, passwords, access tokens, and private user data. Never
-send secrets to the LLM.
-
-------------------------------------------------------------------------
-
-# 9. GitHub repository structure
-
-``` text
-devtrace-ai/
-|
-|-- frontend/
-|   |-- src/
-|   |-- package.json
-|
-|-- backend/
-|   |-- src/
-|   |-- package.json
-|
-|-- sdk/
-|   |-- src/
-|   |-- package.json
-|
-|-- sample-app/
-|   |-- success.js
-|   |-- failure.js
-|   |-- duplicate-event.js
-|
-|-- docs/
-|   |-- architecture.md
-|   |-- api-contract.md
-|   |-- demo-script.md
-|
-|-- .env.example
-|-- .gitignore
-`-- README.md
-```
-
-## Suggested branches
-
--   `main` --- stable version.
--   `backend` --- Member 1.
--   `sdk-ai` --- Member 2.
--   `frontend` --- Member 3.
-
-Do not commit `.env` or real API keys.
-
-------------------------------------------------------------------------
-
-# 10. Demo scenarios
-
-The judges should see the complete product working, not just separate
-pages.
-
-## Scenario A --- Successful run
-
-1.  Open the sample application.
-2.  Trigger a normal request.
-3.  SDK starts a run and records events.
-4.  The request and database operation succeed.
-5.  The run is marked successful.
-6.  Show the saved run and events in MongoDB.
-7.  Show the run in the dashboard.
-
-**Expected result:** A successful run is stored with its event history.
-
-## Scenario B --- Failed run
-
-1.  Trigger a request with a controlled failure, such as an unavailable
-    database.
-2.  SDK captures the error.
-3.  Backend stores the failed event.
-4.  Run is marked failed.
-5.  Open run details.
-6.  Compare it with Scenario A.
-7.  Generate an AI diagnosis.
-
-**Expected result:** The failed operation, supporting evidence, and
-suggested checks are visible.
-
-## Scenario C --- Duplicate event
-
-1.  Send the same event twice with the same `eventId`.
-2.  First request is accepted.
-3.  Second request is identified as a duplicate.
-4.  Check MongoDB to confirm only one event exists.
-
-**Expected result:** Duplicate event is not stored twice.
-
-## Scenario D --- Incomplete input
-
-1.  Send an event without `eventId` or `runId`.
-2.  Backend rejects it.
-3.  Return a clear validation error.
-4.  Confirm invalid data was not stored.
-
-**Expected result:** Invalid input is rejected safely.
-
-------------------------------------------------------------------------
-
-# 11. Final project checklist
-
-## Member 1 --- Backend and MongoDB
-
--   [ ] MongoDB Atlas connected.
--   [ ] Project model created.
--   [ ] Run model created.
--   [ ] Event model created.
--   [ ] Event ingestion works.
--   [ ] Duplicate event IDs are rejected safely.
--   [ ] Required fields are validated.
--   [ ] Indexes are created.
--   [ ] Aggregation returns analytics.
--   [ ] Run comparison API works.
-
-## Member 2 --- SDK and AI
-
--   [ ] SDK can start a run.
--   [ ] SDK can send events.
--   [ ] SDK can finish a run.
--   [ ] Errors are captured.
--   [ ] Success and failure sample scenarios work.
--   [ ] Gemini diagnosis works.
--   [ ] Diagnosis includes evidence.
--   [ ] LLM failure does not break the core tool.
-
-## Member 3 --- Frontend
-
--   [ ] Dashboard loads.
--   [ ] Run history is visible.
--   [ ] Successful and failed statuses are clear.
--   [ ] Event timeline is visible.
--   [ ] Run comparison works.
--   [ ] Diagnosis is displayed.
--   [ ] Loading and error states are handled.
-
-## Whole team
-
--   [ ] All parts are integrated.
--   [ ] Successful run demo works.
--   [ ] Failed run demo works.
--   [ ] Duplicate event demo works.
--   [ ] Incomplete input demo works.
--   [ ] MongoDB data is visible.
--   [ ] Each member can explain their contribution.
-
-------------------------------------------------------------------------
-
-# 12. Useful references
-
--   [MongoDB Data
-    Modeling](https://www.mongodb.com/docs/manual/data-modeling/)
--   [MongoDB
-    Aggregation](https://www.mongodb.com/docs/manual/aggregation/)
--   [MongoDB Unique
-    Indexes](https://www.mongodb.com/docs/manual/core/index-unique/)
--   [MongoDB Schema
-    Validation](https://www.mongodb.com/docs/manual/core/schema-validation/)
--   [MongoDB Change
-    Streams](https://www.mongodb.com/docs/manual/changeStreams/)
--   [Gemini API](https://ai.google.dev/)
--   [Express Documentation](https://expressjs.com/)
--   [React Documentation](https://react.dev/)
--   [Langfuse --- LLM tracing reference](https://langfuse.com/docs)
--   [Sentry --- Error monitoring reference](https://docs.sentry.io/)
-
-------------------------------------------------------------------------
-
-# Final recommendation
-
-Keep DevTrace AI focused on one useful question:
-
-**Why did a run fail, and what changed compared with a successful run?**
-
-Build the event collection and MongoDB storage first, then comparison,
-then AI diagnosis, and finally the dashboard integration.
-
-A small working tool with real run history, duplicate protection, and
-evidence-based diagnosis is stronger than a large tool with features
-that do not work together.
+### Individual Scenarios
+| Scenario | Script | Description |
+|---|---|---|
+| **Scenario A: Success** | `node sample-app/success.js` | Runs a multi-step user search pipeline with clean database and cache queries. Stored as `success`. |
+| **Scenario B: Failure** | `node sample-app/failure.js` | Simulates a database timeout and unhandled exception. Stored as `failed` with stack trace. Ready for instant AI diagnosis. |
+| **Scenario C: Deduplication** | `node sample-app/duplicate-event.js` | Emits identical events with the same `eventId`. Verifies MongoDB rejects duplicates with HTTP 409 while preserving data integrity. |
+
+---
+
+## 10. REST API Reference
+
+All endpoints return standard JSON responses conforming to `{ success: boolean, data?: any, error?: { code, message } }`.
+
+### Projects API
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/projects` | Create a new project and optionally trigger auto-analysis |
+| `GET` | `/api/projects` | List all registered projects |
+| `GET` | `/api/projects/:projectId` | Retrieve project details and cached code analysis |
+| `DELETE` | `/api/projects/:projectId` | Delete project and associated runs and events |
+| `POST` | `/api/projects/:projectId/analyze` | Trigger on-demand codebase static audit with AI |
+
+### Runs API
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/runs` | Initialize a new execution run (`status: running`) |
+| `PATCH` | `/api/runs/:runId` | Complete an execution run (`status: success | failed`) |
+| `GET` | `/api/runs` | Query runs with optional `projectId`, `status`, and `limit` |
+| `GET` | `/api/runs/:runId` | Get detailed run document including diagnosis |
+| `GET` | `/api/runs/:runId/events` | Retrieve chronological timeline events for a run |
+
+### Events API
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/events` | Ingest single execution event (deduped by `eventId`) |
+| `POST` | `/api/events/batch` | Batch ingest up to 100 events in a single transaction |
+| `GET` | `/api/events` | Discover query events by type, status, or project |
+
+### Comparison & Diagnosis API
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/compare/:runId1/:runId2` | Compute differential comparison matrix between two runs |
+| `GET` | `/api/diagnosis/:runId` | Generate AI root-cause diagnosis for a specific run |
+| `GET` | `/api/analytics/overview` | Retrieve system telemetry KPIs and latency metrics |
+
+---
+
+## 11. Troubleshooting & FAQ
+
+#### Q: The AI diagnosis returns "AI diagnosis failed to complete"?
+> **Solution**: Check that `GEMINI_API_KEY` or `GROK_API_KEY` in `backend/.env` is valid and has quota. If no API key is supplied, Solver_X automatically falls back to its internal heuristic engine so debugging is never interrupted.
+
+#### Q: How does Solver_X prevent duplicate events?
+> **Solution**: The MongoDB `Event` collection enforces a unique index on `eventId`. When a duplicate event is transmitted, the backend catches the E11000 index violation and safely returns HTTP 409 without terminating the application.
+
+#### Q: Can I run Solver_X completely offline?
+> **Solution**: Yes. If external internet access or LLM keys are unavailable, Solver_X automatically switches to its offline rule-based heuristic engine, which provides full line-by-line static analysis, error discovery, and trace comparisons.
+
+---
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details. Built with ❤️ by the **Solver_X** Team.
