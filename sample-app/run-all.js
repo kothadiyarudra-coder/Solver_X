@@ -7,6 +7,7 @@
 
 require('dotenv').config();
 const http = require('http');
+const https = require('https');
 const devtrace = require('devtrace-sdk');
 
 const BASE_URL = process.env.DEVTRACE_API_URL || 'http://localhost:5001/api';
@@ -14,12 +15,15 @@ const BASE_URL = process.env.DEVTRACE_API_URL || 'http://localhost:5001/api';
 function sendJson(method, path, data) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, BASE_URL.endsWith('/') ? BASE_URL : BASE_URL + '/');
+    const isHttps = url.protocol === 'https:';
+    const client = isHttps ? https : http;
+    const defaultPort = isHttps ? 443 : 5001;
     const postData = data ? JSON.stringify(data) : '';
 
-    const req = http.request(
+    const req = client.request(
       {
         hostname: url.hostname,
-        port: url.port || 5001,
+        port: url.port || defaultPort,
         path: url.pathname,
         method,
         headers: {

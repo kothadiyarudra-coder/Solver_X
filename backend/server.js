@@ -70,6 +70,10 @@ connectDB().then(() => {
   server.listen(PORT, () => {
     console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
   });
-});
+} else {
+  connectDB();
+}
 
-module.exports = { app, server };
+module.exports = app;
+module.exports.app = app;
+module.exports.server = server;
