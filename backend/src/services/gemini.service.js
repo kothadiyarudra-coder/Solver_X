@@ -93,7 +93,7 @@ async function generateDiagnosis(runId) {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-1.5-flash',
       generationConfig: {
         responseMimeType: 'application/json',
       },
@@ -136,7 +136,14 @@ ${JSON.stringify({ runId: run.runId, name: run.name, status: run.status, duratio
 Event history:
 ${JSON.stringify(sanitizedEvents, null, 2)}`;
 
-    const result = await model.generateContent(prompt);
+    const callWithTimeout = Promise.race([
+      model.generateContent(prompt),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Diagnosis AI call timed out after 8s')), 8000)
+      ),
+    ]);
+
+    const result = await callWithTimeout;
     const rawText = result.response.text();
     
     // Strip markdown code fences if present (e.g. ```json ... ```)
@@ -476,7 +483,7 @@ async function analyzeCodebase(projectId, options = {}) {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-1.5-flash',
       generationConfig: {
         responseMimeType: 'application/json',
       },
@@ -546,14 +553,21 @@ Return valid JSON strictly conforming to this schema:
   ]
 }`;
 
-    const result = await model.generateContent(prompt);
+    const callWithTimeout = Promise.race([
+      model.generateContent(prompt),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Codebase AI audit timed out after 8s')), 8000)
+      ),
+    ]);
+
+    const result = await callWithTimeout;
     const rawText = result.response.text();
     const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanJson);
 
     parsed.analyzedAt = new Date();
     parsed.filesAnalyzed = filesToAnalyze.length;
-    parsed.modelUsed = 'gemini-3.8-flash';
+    parsed.modelUsed = 'gemini-1.5-flash';
 
     // Update project document with full analysis
     await Project.updateOne({ projectId }, { codeAnalysis: parsed });
