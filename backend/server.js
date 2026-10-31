@@ -1,6 +1,7 @@
 const path = require('path');
 // Load .env from project root
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 require('dotenv').config();
 
 const http = require('http');
@@ -12,7 +13,7 @@ const { Server } = require('socket.io');
 const connectDB = require('./src/config/db');
 const errorHandler = require('./src/middleware/error.middleware');
 
-// Routes
+// Routes (referenced into ./src/routes)
 const projectRoutes = require('./src/routes/project.routes');
 const runRoutes = require('./src/routes/run.routes');
 const eventRoutes = require('./src/routes/event.routes');
@@ -61,7 +62,7 @@ app.get('/health', (req, res) => {
 // Global Error Handler
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
 
 // Connect Database and Start Server
 connectDB().then(() => {
