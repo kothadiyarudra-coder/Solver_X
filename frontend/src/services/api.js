@@ -6,7 +6,7 @@ const API_BASE =
 
 const apiClient = axios.create({
   baseURL: API_BASE,
-  timeout: 10000,
+  timeout: 60000, // 60s timeout to allow AI diagnosis and telemetry aggregation
 });
 
 export const api = {
