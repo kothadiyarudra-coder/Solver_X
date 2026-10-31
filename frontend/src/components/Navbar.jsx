@@ -1,15 +1,32 @@
 import React, { useState, useEffect } from "react";
 import { ChevronDown, LayoutGrid, Monitor, Calendar } from "lucide-react";
 import { api } from "../services/api";
+import { socket } from "../services/socket";
 
 export default function Navbar() {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState("all");
 
-  useEffect(() => {
+  const loadProjects = () => {
     api.getProjects().then((data) => {
       setProjects(data || []);
     });
+  };
+
+  useEffect(() => {
+    loadProjects();
+
+    const onProjectChange = () => {
+      loadProjects();
+    };
+
+    socket.on('project_created', onProjectChange);
+    socket.on('project_deleted', onProjectChange);
+
+    return () => {
+      socket.off('project_created', onProjectChange);
+      socket.off('project_deleted', onProjectChange);
+    };
   }, []);
 
   const todayStr = new Date().toLocaleDateString(undefined, {
