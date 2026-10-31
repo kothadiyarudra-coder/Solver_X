@@ -65,15 +65,25 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-// Connect Database and Start Server
 connectDB().then(() => {
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
   });
-} else {
-  connectDB();
-}
+});
 
-module.exports = app;
-module.exports.app = app;
-module.exports.server = server;
+module.exports = { app, server };
+
+// const PORT = process.env.PORT || 5000;
+
+// // Connect Database and Start Server
+// connectDB().then() => {
+//   server.listen(PORT, (() => {
+//     console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
+//   });
+// } else {
+//   connectDB();
+// }
+
+// module.exports = app;
+// module.exports.app = app;
+// module.exports.server = server;
