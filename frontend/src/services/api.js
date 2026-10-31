@@ -127,9 +127,68 @@ export const api = {
   async getEventTimeseries(params = {}) {
     try {
       const res = await apiClient.get('/events/timeseries', { params });
+      const rawData = res.data?.data ?? res.data?.points ?? (Array.isArray(res.data) ? res.data : []);
+      const rawCategories = Array.isArray(res.data?.categories) ? res.data.categories : [];
+
+      if (!Array.isArray(rawData)) {
+        return { points: [], categories: [] };
+      }
+
+      // Check if data is legacy format with _id: { hour, type }
+      const isLegacy = rawData.some((item) => item && typeof item._id === 'object' && item._id !== null);
+
+      if (isLegacy) {
+        const typesSet = new Set();
+        const hourMap = {};
+        rawData.forEach((item) => {
+          if (!item) return;
+          const hour = (typeof item._id === 'object' && item._id?.hour) || (typeof item.time === 'string' ? item.time : '00:00');
+          if (!hourMap[hour]) hourMap[hour] = { time: hour, success: 0, failed: 0 };
+
+          const rawType = typeof item._id === 'object' ? item._id?.type : item.type;
+          const typeKey = typeof rawType === 'string' ? rawType : 'general';
+          typesSet.add(typeKey);
+
+          const count = Number(item.count || item.errors || 1);
+          const errCount = Number(item.errors || 0);
+          hourMap[hour][typeKey] = (hourMap[hour][typeKey] || 0) + count;
+          if (errCount > 0) {
+            hourMap[hour][`${typeKey}_errors`] = (hourMap[hour][`${typeKey}_errors`] || 0) + errCount;
+            hourMap[hour].failed = (hourMap[hour].failed || 0) + errCount;
+            hourMap[hour].success = (hourMap[hour].success || 0) + Math.max(0, count - errCount);
+          } else {
+            hourMap[hour].success = (hourMap[hour].success || 0) + count;
+          }
+        });
+        const points = Object.values(hourMap);
+        const categories = Array.from(typesSet);
+        return { points, categories };
+      }
+
+      // Modern format: sanitize categories and remove raw objects / _id from point values
+      const cleanCategories = rawCategories
+        .filter((cat) => typeof cat === 'string' && cat !== '_id' && cat !== 'time' && cat !== 'timestamp')
+        .map(String);
+
+      const cleanPoints = rawData.map((pt) => {
+        if (!pt || typeof pt !== 'object') return { time: '00:00' };
+        const cleanPt = {};
+        for (const [k, v] of Object.entries(pt)) {
+          if (k === '_id') continue;
+          if (typeof v === 'object' && v !== null) continue;
+          cleanPt[k] = v;
+        }
+        if (!cleanPt.time) {
+          cleanPt.time = typeof pt.timestamp === 'number'
+            ? new Date(pt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '00:00';
+        }
+        return cleanPt;
+      });
+
       return {
-        points: Array.isArray(res.data?.data) ? res.data.data : [],
-        categories: res.data?.categories || [],
+        points: cleanPoints,
+        categories: cleanCategories,
       };
     } catch (err) {
       console.warn('[API] getEventTimeseries error:', err.message);

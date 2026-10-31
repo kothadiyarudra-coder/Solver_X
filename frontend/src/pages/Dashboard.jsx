@@ -93,8 +93,10 @@ export default function Dashboard() {
   const avgDurationMs = analytics?.avgDurationMs ?? 0;
 
   const eventDistribution = (analytics?.failuresByEventType || []).map((f, i) => ({
-    name: f.eventType,
-    value: f.count,
+    name: typeof f.eventType === "object" && f.eventType !== null
+      ? (f.eventType.type || JSON.stringify(f.eventType))
+      : String(f.eventType || "Unknown"),
+    value: Number(f.count) || 0,
     color: PIE_COLORS[i % PIE_COLORS.length],
   }));
 
