@@ -50,7 +50,7 @@ export default function Diagnosis() {
       setDiagnosis(data);
     } catch (err) {
       console.error("[Diagnosis] Diagnosis failed:", err);
-      setError("AI diagnosis failed to complete. Check backend logs and GEMINI_API_KEY.");
+      setError("AI diagnosis failed to complete. Check backend logs and AI API key (GROK_API_KEY or GEMINI_API_KEY).");
     } finally {
       setLoading(false);
     }
@@ -65,7 +65,7 @@ export default function Diagnosis() {
             AI Root Cause Diagnosis
           </h1>
           <p className="text-slate-400 mt-1">
-            Automated failure analysis powered by Gemini AI and execution event telemetry from MongoDB.
+            Automated failure analysis powered by AI (xAI Grok / Google Gemini) and execution event telemetry from MongoDB.
           </p>
         </div>
 
@@ -119,13 +119,13 @@ export default function Diagnosis() {
           <Inbox size={32} className="mx-auto text-slate-500 mb-2" />
           <p className="text-base font-semibold text-slate-300">No runs found in MongoDB</p>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            Run `node sample-app/failure.js` to create a failing run and diagnose it with Gemini AI.
+            Run `node sample-app/failure.js` to create a failing run and diagnose it with AI.
           </p>
         </div>
       ) : loading ? (
         <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-12 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
           <RefreshCw className="animate-spin text-purple-400" size={32} />
-          <p className="text-sm font-medium">Analyzing telemetry events with Gemini AI...</p>
+          <p className="text-sm font-medium">Analyzing telemetry events with AI...</p>
         </div>
       ) : diagnosis ? (
         <AIAnalysis diagnosis={diagnosis} />
@@ -134,7 +134,7 @@ export default function Diagnosis() {
           <Sparkles size={32} className="mx-auto text-purple-400 mb-3" />
           <p className="text-base font-semibold text-slate-200">Ready to diagnose {selectedRunId}</p>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            Click "Run Diagnosis" to submit the run's event sequence and error payloads to Gemini for root cause explanation and suggested fixes.
+            Click "Run Diagnosis" to submit the run's event sequence and error payloads for root cause explanation and suggested fixes.
           </p>
         </div>
       )}
