@@ -27,6 +27,99 @@ function sanitizeData(obj) {
 }
 
 /**
+ * Determine which AI Provider to use: xAI Grok, Google Gemini, or Heuristic Fallback
+ */
+function getAIConfig() {
+  const grokKey = process.env.GROK_API_KEY?.trim() || process.env.XAI_API_KEY?.trim();
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  const provider = (process.env.AI_PROVIDER || '').trim().toLowerCase();
+
+  // If user pasted a Grok key into GEMINI_API_KEY (starts with 'xai-' or contains 'grok' or provider is 'grok')
+  const isGrokKeyInGemini = geminiKey && (geminiKey.startsWith('xai-') || provider === 'grok');
+  const activeGrokKey = grokKey || (isGrokKeyInGemini ? geminiKey : null);
+  const activeGeminiKey = !isGrokKeyInGemini && geminiKey && geminiKey !== 'your_gemini_api_key_here' ? geminiKey : null;
+
+  if (activeGrokKey && activeGrokKey !== 'your_grok_api_key_here') {
+    return {
+      provider: 'grok',
+      apiKey: activeGrokKey,
+      model: process.env.GROK_MODEL?.trim() || 'grok-2-latest',
+    };
+  }
+
+  if (activeGeminiKey) {
+    return {
+      provider: 'gemini',
+      apiKey: activeGeminiKey,
+      model: process.env.GEMINI_MODEL?.trim() || 'gemini-flash-lite-latest',
+    };
+  }
+
+  return { provider: 'heuristic' };
+}
+
+/**
+ * Call xAI Grok API (OpenAI-compatible chat completions)
+ */
+async function callGrokChat(apiKey, model, systemPrompt, userPrompt) {
+  const modelName = model || 'grok-2-latest';
+  console.log(`[AI Service] Calling xAI Grok (${modelName})...`);
+
+  const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelName,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`xAI Grok API HTTP ${response.status}: ${errText}`);
+  }
+
+  const result = await response.json();
+  const rawText = result.choices?.[0]?.message?.content;
+  if (!rawText) {
+    throw new Error('xAI Grok API returned empty response content');
+  }
+
+  const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+  return JSON.parse(cleanJson);
+}
+
+/**
+ * Call Google Gemini API
+ */
+async function callGeminiChat(apiKey, modelName, systemPrompt, userPrompt) {
+  const model = modelName || process.env.GEMINI_MODEL?.trim() || 'gemini-flash-lite-latest';
+  console.log(`[AI Service] Calling Google Gemini (${model})...`);
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const generativeModel = genAI.getGenerativeModel({
+    model: model,
+    generationConfig: {
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+  const result = await generativeModel.generateContent(fullPrompt);
+  const rawText = result.response.text();
+  const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+  return JSON.parse(cleanJson);
+}
+
+/**
  * Rule-based fallback diagnosis when LLM key is absent or offline
  * Ensures the core debugging tool NEVER breaks or hangs (README Section 2 Deliverable).
  */
@@ -44,6 +137,7 @@ function generateFallbackDiagnosis(run, events) {
         'Review application return codes and external API responses.',
       ],
       confidence: 'medium',
+      provider: 'Heuristic Engine',
     };
   }
 
@@ -66,11 +160,12 @@ function generateFallbackDiagnosis(run, events) {
       'Review error stack trace and network connectivity.',
     ],
     confidence: 'high',
+    provider: 'Heuristic Engine',
   };
 }
 
 /**
- * Generate AI-powered diagnosis for a run using Gemini API
+ * Generate AI-powered diagnosis for a run using Grok or Gemini API
  */
 async function generateDiagnosis(runId) {
   const run = await Run.findOne({ runId }).lean();
@@ -79,26 +174,17 @@ async function generateDiagnosis(runId) {
   }
 
   const events = await Event.find({ runId }).sort({ timestamp: 1 }).lean();
+  const ai = getAIConfig();
 
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-
-  // If no API key or placeholder, use the heuristic evidence diagnosis directly
-  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    console.log('[Gemini Service] No valid GEMINI_API_KEY configured, using heuristic evidence diagnosis.');
+  // If no API key configured, use heuristic evidence diagnosis directly
+  if (ai.provider === 'heuristic') {
+    console.log('[AI Service] No valid GROK_API_KEY or GEMINI_API_KEY configured, using heuristic evidence diagnosis.');
     const fallback = generateFallbackDiagnosis(run, events);
     await Run.updateOne({ runId }, { diagnosis: fallback });
     return fallback;
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
-      generationConfig: {
-        responseMimeType: 'application/json',
-      },
-    });
-
     const sanitizedEvents = events.map((e) => ({
       eventId: e.eventId,
       type: e.type,
@@ -108,7 +194,7 @@ async function generateDiagnosis(runId) {
       payload: sanitizeData(e.payload),
     }));
 
-    const prompt = `You are a software debugging assistant.
+    const systemPrompt = `You are a software debugging assistant.
 Analyze the supplied application run and event history.
 
 Your tasks:
@@ -119,7 +205,7 @@ Your tasks:
 5. Separate confirmed evidence from assumptions.
 6. Do not invent missing logs, configuration, or facts.
 
-Return valid JSON conforming to this schema:
+Return valid JSON conforming strictly to this schema:
 {
   "summary": "Short explanation of failure",
   "rootCause": "Likely root cause in plain English",
@@ -128,33 +214,30 @@ Return valid JSON conforming to this schema:
   ],
   "suggestedChecks": ["string"],
   "confidence": "high" | "medium" | "low"
-}
+}`;
 
-Run data:
+    const userPrompt = `Run data:
 ${JSON.stringify({ runId: run.runId, name: run.name, status: run.status, durationMs: run.durationMs, startedAt: run.startedAt, completedAt: run.completedAt }, null, 2)}
 
 Event history:
 ${JSON.stringify(sanitizedEvents, null, 2)}`;
 
-    const callWithTimeout = Promise.race([
-      model.generateContent(prompt),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Diagnosis AI call timed out after 8s')), 8000)
-      ),
-    ]);
+    let parsed = null;
+    if (ai.provider === 'grok') {
+      parsed = await callGrokChat(ai.apiKey, ai.model, systemPrompt, userPrompt);
+      parsed.provider = 'xAI Grok';
+    } else {
+      parsed = await callGeminiChat(ai.apiKey, ai.model, systemPrompt, userPrompt);
+      parsed.provider = 'Google Gemini';
+    }
 
-    const result = await callWithTimeout;
-    const rawText = result.response.text();
-    
-    // Strip markdown code fences if present (e.g. ```json ... ```)
-    const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+    parsed.modelUsed = ai.model;
 
     // Save diagnosis to Run in MongoDB
     await Run.updateOne({ runId }, { diagnosis: parsed });
     return parsed;
   } catch (error) {
-    console.error('[Gemini Service Warning]', error.message);
+    console.error('[AI Service Warning]', error.message);
     // Graceful fallback: LLM failure never breaks debugging
     const fallback = generateFallbackDiagnosis(run, events);
     await Run.updateOne({ runId }, { diagnosis: fallback });
@@ -196,7 +279,6 @@ function readFilesFromDir(dirPath, maxFiles = 30) {
                   name: entry.name,
                   path: relPath,
                   content: content.slice(0, 6000), // first 6k chars
-                  size: stat.size,
                 });
                 count++;
               }
@@ -340,14 +422,14 @@ function generateFallbackCodeAnalysis(projectName, files, sourceType, sourcePath
   }
 
   // Base scores
-  const critCount = issues.filter(i => i.severity === 'critical').length;
-  const highCount = issues.filter(i => i.severity === 'high').length;
+  const critCount = issues.filter((i) => i.severity === 'critical').length;
+  const highCount = issues.filter((i) => i.severity === 'high').length;
   const perfPenalty = performanceBottlenecks.length * 8;
   const secPenalty = critCount * 25 + highCount * 12;
 
   const performanceScore = Math.max(55, Math.min(96, 95 - perfPenalty));
   const securityScore = Math.max(50, Math.min(98, 96 - secPenalty));
-  const reliabilityScore = Math.max(60, Math.min(95, 92 - (issues.length * 6)));
+  const reliabilityScore = Math.max(60, Math.min(95, 92 - issues.length * 6));
   const overallScore = Math.round((performanceScore + securityScore + reliabilityScore) / 3);
 
   recommendations.push(
@@ -419,28 +501,21 @@ async function syncDiscoveredErrorsToDb(projectId, projectName, issues) {
         const errEventId = `evt-audit-${projectId}-${Date.now().toString(36)}-${i}`;
         await Event.create({
           eventId: errEventId,
-          projectId,
           runId: auditRunId,
-          type:
-            iss.category === 'security'
-              ? 'security_vulnerability'
-              : iss.category === 'reliability'
-              ? 'reliability_risk'
-              : 'code_issue',
+          projectId: projectId,
+          type: 'code_audit_error',
           status: 'failed',
           timestamp: new Date(),
           durationMs: Math.floor(Math.random() * 45) + 20,
           payload: {
-            message: iss.title,
             errorName: iss.title,
-            endpoint: iss.file ? `${iss.file}${iss.line ? `:${iss.line}` : ''}` : 'codebase',
-            operation: iss.category || 'code_issue',
-            file: iss.file || 'unknown',
-            line: iss.line || 1,
+            message: iss.description,
             severity: iss.severity || 'high',
-            description: iss.description,
-            suggestedFix: iss.suggestedFix,
-            source: 'gemini_codebase_audit',
+            category: iss.category || 'bug',
+            culpritFile: iss.file || 'unknown',
+            culpritLine: iss.line || 0,
+            suggestedFix: iss.suggestedFix || 'Review code',
+            source: 'ai_static_audit',
           },
         });
         newErrorsCount++;
@@ -464,83 +539,50 @@ async function syncDiscoveredErrorsToDb(projectId, projectName, issues) {
 
     return newErrorsCount;
   } catch (err) {
-    console.warn('[Gemini Audit Sync Warning]:', err.message);
+    console.warn(`[AI Service Warning] Failed syncing audit errors to DB: ${err.message}`);
     return 0;
   }
 }
 
 /**
- * AI-powered Codebase Diagnosis for a Project
- * Analyzes code from local path, uploaded files, or software URL against existing database errors:
- *   - Cross-references existing database errors with source code
- *   - Discovers any new errors, runtime risks, or performance bottlenecks
- *   - Automatically updates newly found errors in the database!
+ * Deep static and dynamic code inspection powered by xAI Grok / Google Gemini
  */
 async function analyzeCodebase(projectId, options = {}) {
-  const project = await Project.findOne({ projectId });
+  const project = await Project.findOne({ projectId }).lean();
   if (!project) {
     throw { statusCode: 404, code: 'PROJECT_NOT_FOUND', message: `Project '${projectId}' not found.` };
   }
 
+  // Determine file directory to analyze
   let filesToAnalyze = [];
+  const projectRoot = path.resolve(__dirname, '../../../');
 
-  // 1. Gather files based on source type
   if (options.files && Array.isArray(options.files) && options.files.length > 0) {
     filesToAnalyze = options.files;
-  } else if (project.codeFiles && project.codeFiles.length > 0) {
+  } else if (options.localPath && fs.existsSync(options.localPath)) {
+    filesToAnalyze = readFilesFromDir(options.localPath, 30);
+  } else if (project.sourcePath && fs.existsSync(project.sourcePath)) {
+    filesToAnalyze = readFilesFromDir(project.sourcePath, 30);
+  } else if (project.codeFiles && Array.isArray(project.codeFiles) && project.codeFiles.length > 0) {
     filesToAnalyze = project.codeFiles;
-  } else if (project.sourceType === 'local_path' && project.sourcePath) {
-    filesToAnalyze = readFilesFromDir(project.sourcePath, 35);
-  } else if (options.localPath) {
-    filesToAnalyze = readFilesFromDir(options.localPath, 35);
+  } else {
+    // Audit current repository
+    filesToAnalyze = readFilesFromDir(projectRoot, 30);
   }
 
-  // If no files could be read directly, generate metadata representation
-  if (filesToAnalyze.length === 0) {
-    const summaryInfo = project.sourcePath || project.softwareUrl || `Project ID: ${projectId}`;
-    filesToAnalyze = [
-      {
-        name: 'project-metadata.json',
-        path: 'metadata.json',
-        content: JSON.stringify(
-          {
-            projectId: project.projectId,
-            name: project.name,
-            sourceType: project.sourceType,
-            sourcePath: project.sourcePath,
-            softwareUrl: project.softwareUrl,
-            description: project.description,
-          },
-          null,
-          2
-        ),
-        size: 512,
-      },
-    ];
-  }
-
-  // 2. Query existing errors in the database for this project (or recent errors)
-  const existingDbErrors = await Event.find({ projectId: project.projectId, status: 'failed' })
-    .sort({ timestamp: -1 })
-    .limit(30)
-    .lean();
-
-  let errorContext = existingDbErrors;
-  if (errorContext.length === 0) {
-    errorContext = await Event.find({ status: 'failed' }).sort({ timestamp: -1 }).limit(10).lean();
-  }
-
-  const existingErrorSignatures = errorContext.map((e) => ({
+  // Fetch past error events from DB for this project to cross-reference
+  const pastErrorEvents = await Event.find({ projectId, status: 'failed' }).limit(20).lean();
+  const existingErrorSignatures = pastErrorEvents.map((e) => ({
     eventId: e.eventId,
     type: e.type,
     message: e.payload?.message || e.payload?.errorName || e.type,
     culprit: e.payload?.endpoint || e.payload?.operation || e.payload?.file || 'N/A',
   }));
 
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const ai = getAIConfig();
 
-  // If no Gemini API key or offline, use smart static analysis
-  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+  // If no AI key or offline, use smart static analysis
+  if (ai.provider === 'heuristic') {
     const analysis = generateFallbackCodeAnalysis(project.name, filesToAnalyze, project.sourceType, project.sourcePath);
     await Project.updateOne({ projectId }, { codeAnalysis: analysis });
     await syncDiscoveredErrorsToDb(project.projectId, project.name, analysis.issues);
@@ -548,24 +590,16 @@ async function analyzeCodebase(projectId, options = {}) {
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
-      generationConfig: {
-        responseMimeType: 'application/json',
-      },
-    });
-
     const fileSummaries = filesToAnalyze.slice(0, 25).map((f) => ({
       path: f.path || f.name,
-      size: f.size,
       snippet: (f.content || '').slice(0, 3500),
     }));
 
-    const prompt = `You are a senior principal software engineer and static analysis auditor.
+    const systemPrompt = `You are a senior principal software engineer and static analysis auditor.
 Audit the following codebase/software project.
+You MUST return strictly valid JSON.`;
 
-Important Task Instructions:
+    const userPrompt = `Important Task Instructions:
 1. Examine the supplied code files against the EXISTING RECORDED DATABASE ERRORS.
 2. Cross-reference: determine if any of the existing database errors are visible in this code.
 3. CRITICAL REQUIREMENT - EXHAUSTIVELY DETECT ALL ERRORS:
@@ -621,21 +655,22 @@ Return valid JSON strictly conforming to this schema:
   ]
 }`;
 
-    const callWithTimeout = Promise.race([
-      model.generateContent(prompt),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Codebase AI audit timed out after 8s')), 8000)
-      ),
-    ]);
+    const startTime = Date.now();
+    let parsed = null;
+    if (ai.provider === 'grok') {
+      parsed = await callGrokChat(ai.apiKey, ai.model, systemPrompt, userPrompt);
+      parsed.provider = 'xAI Grok';
+    } else {
+      parsed = await callGeminiChat(ai.apiKey, ai.model, systemPrompt, userPrompt);
+      parsed.provider = 'Google Gemini';
+    }
 
-    const result = await callWithTimeout;
-    const rawText = result.response.text();
-    const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+    const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`[AI Service] ✓ Code audit successfully completed by ${parsed.provider} (${ai.model}) in ${durationSec}s`);
 
     parsed.analyzedAt = new Date();
     parsed.filesAnalyzed = filesToAnalyze.length;
-    parsed.modelUsed = 'gemini-1.5-flash';
+    parsed.modelUsed = ai.model;
 
     // Update project document with full analysis
     await Project.updateOne({ projectId }, { codeAnalysis: parsed });
@@ -646,7 +681,8 @@ Return valid JSON strictly conforming to this schema:
 
     return parsed;
   } catch (error) {
-    console.error('[Gemini Code Analysis Warning]', error.message);
+    console.error(`[AI Code Analysis Error Details] AI call failed: ${error.message}`);
+    console.warn('[AI Code Analysis] Falling back to heuristic rule-based analysis.');
     const fallback = generateFallbackCodeAnalysis(project.name, filesToAnalyze, project.sourceType, project.sourcePath);
     await Project.updateOne({ projectId }, { codeAnalysis: fallback });
     await syncDiscoveredErrorsToDb(project.projectId, project.name, fallback.issues);
