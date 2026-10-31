@@ -32,25 +32,43 @@ export default function Issues() {
       const rawErrors = errorData.errors || [];
 
       // Transform raw errors into issue objects
-      const formatted = rawErrors.map((err, idx) => ({
-        id: `ISSUE-${100 + idx}`,
-        title: err.title || `Error in ${err.types?.[0] || 'execution'}`,
-        culprit: err.sampleEvent?.payload?.endpoint || err.sampleEvent?.payload?.operation || `Type: ${err.types?.[0] || 'Unknown'}`,
-        status: "unresolved",
-        severity: err.count > 5 ? "fatal" : "error",
-        events: err.count,
-        users: err.uniqueUsers || 1,
-        lastSeen: err.lastSeen ? new Date(err.lastSeen).toLocaleTimeString() : "Just now",
-        project: err.projectId || "devtrace",
-        runId: err.sampleEvent?.runId,
-        source: err.sampleEvent?.payload?.source || 'runtime',
-        suggestedFix: err.sampleEvent?.payload?.suggestedFix || null,
-        file: err.sampleEvent?.payload?.file || null,
-        tags: [
-          `env:${err.projectId || 'production'}`,
-          ...(err.types || []),
-        ],
-      }));
+      const formatted = rawErrors.map((err, idx) => {
+        const titleStr = typeof err.title === 'object' && err.title !== null
+          ? (err.title.hour ? `${err.title.hour}: ${err.title.type || 'error'}` : JSON.stringify(err.title))
+          : String(err.title || `Error in ${err.types?.[0] || 'execution'}`);
+
+        const culpritRaw = err.sampleEvent?.payload?.endpoint || err.sampleEvent?.payload?.operation || `Type: ${err.types?.[0] || 'Unknown'}`;
+        const culpritStr = typeof culpritRaw === 'object' && culpritRaw !== null
+          ? JSON.stringify(culpritRaw)
+          : String(culpritRaw || 'Unknown');
+
+        const projStr = typeof err.projectId === 'object' && err.projectId !== null
+          ? JSON.stringify(err.projectId)
+          : String(err.projectId || 'devtrace');
+
+        const rawTypes = Array.isArray(err.types) ? err.types : [];
+        const cleanTags = [
+          `env:${projStr}`,
+          ...rawTypes.map((t) => typeof t === 'object' && t !== null ? (t.type || JSON.stringify(t)) : String(t)),
+        ];
+
+        return {
+          id: `ISSUE-${100 + idx}`,
+          title: titleStr,
+          culprit: culpritStr,
+          status: "unresolved",
+          severity: err.count > 5 ? "fatal" : "error",
+          events: typeof err.count === 'number' ? err.count : Number(err.count) || 1,
+          users: err.uniqueUsers || 1,
+          lastSeen: err.lastSeen ? new Date(err.lastSeen).toLocaleTimeString() : "Just now",
+          project: projStr,
+          runId: err.sampleEvent?.runId,
+          source: err.sampleEvent?.payload?.source || 'runtime',
+          suggestedFix: err.sampleEvent?.payload?.suggestedFix || null,
+          file: err.sampleEvent?.payload?.file || null,
+          tags: cleanTags,
+        };
+      });
 
       setIssues(formatted);
     } catch (err) {

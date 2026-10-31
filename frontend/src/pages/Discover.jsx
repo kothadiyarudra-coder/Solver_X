@@ -62,15 +62,17 @@ export default function Discover() {
 
       if (timeseriesRes && Array.isArray(timeseriesRes.points)) {
         points = timeseriesRes.points;
-        categories = timeseriesRes.categories || [];
+        categories = (timeseriesRes.categories || []).filter((c) => typeof c === "string" && c !== "_id");
       } else if (Array.isArray(timeseriesRes)) {
         // Fallback for legacy format
         const typesSet = new Set();
         const hourMap = {};
         timeseriesRes.forEach((item) => {
-          const hour = item._id?.hour || "00:00";
+          if (!item) return;
+          const hour = (typeof item._id === "object" && item._id?.hour) || (typeof item.time === "string" ? item.time : "00:00");
           if (!hourMap[hour]) hourMap[hour] = { time: hour };
-          const key = item._id?.type || "error";
+          const rawKey = typeof item._id === "object" ? item._id?.type : item.type;
+          const key = typeof rawKey === "string" ? rawKey : "error";
           typesSet.add(key);
           hourMap[hour][key] = (hourMap[hour][key] || 0) + (item.errors || item.count || 0);
         });
@@ -78,12 +80,23 @@ export default function Discover() {
         categories = Array.from(typesSet);
       }
 
-      // If categories is empty, extract keys from points
+      // If categories is empty, extract primitive keys from points
       if (categories.length === 0 && points.length > 0) {
         const catSet = new Set();
         points.forEach((p) => {
+          if (!p || typeof p !== "object") return;
           Object.keys(p).forEach((k) => {
-            if (k !== "time" && k !== "timestamp" && !k.endsWith("_errors")) {
+            if (
+              typeof k === "string" &&
+              k !== "_id" &&
+              k !== "id" &&
+              k !== "time" &&
+              k !== "timestamp" &&
+              k !== "success" &&
+              k !== "failed" &&
+              !k.endsWith("_errors") &&
+              typeof p[k] !== "object"
+            ) {
               catSet.add(k);
             }
           });
@@ -91,7 +104,7 @@ export default function Discover() {
         categories = Array.from(catSet);
       }
 
-      setErrorCategories(categories);
+      setErrorCategories(categories.filter((c) => typeof c === "string" && c !== "_id"));
       setChartData(points);
     } catch (err) {
       console.error("[Discover] Failed to fetch telemetry:", err);
@@ -108,9 +121,15 @@ export default function Discover() {
     if (!query.trim() || query === "event.type:error") return true;
     const cleanQ = query.replace("event.type:error", "").trim().toLowerCase();
     if (!cleanQ) return true;
+    const itemTitle = typeof item.title === "object" && item.title !== null
+      ? (item.title.hour ? `${item.title.hour}: ${item.title.type || "error"}` : JSON.stringify(item.title))
+      : String(item.title || "");
+    const itemProj = typeof item.projectId === "object" && item.projectId !== null
+      ? JSON.stringify(item.projectId)
+      : String(item.projectId || "");
     return (
-      (item.title && item.title.toLowerCase().includes(cleanQ)) ||
-      (item.projectId && item.projectId.toLowerCase().includes(cleanQ))
+      itemTitle.toLowerCase().includes(cleanQ) ||
+      itemProj.toLowerCase().includes(cleanQ)
     );
   });
 
@@ -289,35 +308,46 @@ export default function Discover() {
                   </td>
                 </tr>
               ) : (
-                filteredErrors.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-[#281d3e] transition">
-                    <td className="px-4 py-3 font-mono text-slate-200">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-2 w-2 rounded-full shrink-0"
-                          style={{
-                            backgroundColor: AREA_COLORS[idx % AREA_COLORS.length],
-                          }}
-                        />
-                        <span className="truncate max-w-xl">{row.title}</span>
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-white">
-                      {row.count}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-slate-300">
-                      {row.uniqueUsers || 1}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span className="rounded bg-purple-500/10 px-2 py-0.5 text-purple-300 border border-purple-500/20">
-                        {row.projectId || "devtrace"}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-400">
-                      {row.lastSeen ? new Date(row.lastSeen).toLocaleTimeString() : "N/A"}
-                    </td>
-                  </tr>
-                ))
+                filteredErrors.map((row, idx) => {
+                  const displayTitle = typeof row.title === "object" && row.title !== null
+                    ? (row.title.hour ? `${row.title.hour}: ${row.title.type || "error"}` : JSON.stringify(row.title))
+                    : String(row.title || "Unknown Error");
+                  const displayProject = typeof row.projectId === "object" && row.projectId !== null
+                    ? JSON.stringify(row.projectId)
+                    : String(row.projectId || "devtrace");
+                  const displayCount = typeof row.count === "number" ? row.count : String(row.count ?? 0);
+                  const displayUsers = typeof row.uniqueUsers === "number" ? row.uniqueUsers : String(row.uniqueUsers ?? 1);
+
+                  return (
+                    <tr key={idx} className="hover:bg-[#281d3e] transition">
+                      <td className="px-4 py-3 font-mono text-slate-200">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="h-2 w-2 rounded-full shrink-0"
+                            style={{
+                              backgroundColor: AREA_COLORS[idx % AREA_COLORS.length],
+                            }}
+                          />
+                          <span className="truncate max-w-xl">{displayTitle}</span>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-white">
+                        {displayCount}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-slate-300">
+                        {displayUsers}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className="rounded bg-purple-500/10 px-2 py-0.5 text-purple-300 border border-purple-500/20">
+                          {displayProject}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-400">
+                        {row.lastSeen ? new Date(row.lastSeen).toLocaleTimeString() : "N/A"}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

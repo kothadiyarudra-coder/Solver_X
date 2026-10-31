@@ -274,7 +274,18 @@ const getErrorEvents = async (req, res, next) => {
       },
       {
         $project: {
-          title: '$_id',
+          title: {
+            $cond: [
+              { $eq: [{ $type: '$_id' }, 'object'] },
+              {
+                $concat: [
+                  'Error: ',
+                  { $ifNull: ['$_id.type', { $ifNull: ['$_id.hour', 'execution'] }] }
+                ]
+              },
+              '$_id'
+            ]
+          },
           count: 1,
           lastSeen: 1,
           firstSeen: 1,
@@ -499,7 +510,7 @@ const getEventTimeseries = async (req, res, next) => {
         initialTypes[cat] = 0;
         initialTypes[`${cat}_errors`] = 0;
       });
-      bucketMap.set(t, { time: timeStr, timestamp: t, ...initialTypes });
+      bucketMap.set(t, { time: timeStr, timestamp: t, success: 0, failed: 0, ...initialTypes });
     }
 
     // Populate events into buckets
@@ -515,7 +526,7 @@ const getEventTimeseries = async (req, res, next) => {
           initialTypes[cat] = 0;
           initialTypes[`${cat}_errors`] = 0;
         });
-        bucket = { time: timeStr, timestamp: bucketTime, ...initialTypes };
+        bucket = { time: timeStr, timestamp: bucketTime, success: 0, failed: 0, ...initialTypes };
         bucketMap.set(bucketTime, bucket);
       }
 
@@ -523,6 +534,9 @@ const getEventTimeseries = async (req, res, next) => {
       bucket[type] = (bucket[type] || 0) + 1;
       if (ev.status === 'failed') {
         bucket[`${type}_errors`] = (bucket[`${type}_errors`] || 0) + 1;
+        bucket.failed = (bucket.failed || 0) + 1;
+      } else {
+        bucket.success = (bucket.success || 0) + 1;
       }
     });
 

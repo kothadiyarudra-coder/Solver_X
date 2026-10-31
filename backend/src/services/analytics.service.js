@@ -73,7 +73,9 @@ async function getProjectAnalytics(projectId) {
     successRate,
     avgDurationMs: Math.round(metrics.avgDurationMs || 0),
     failuresByEventType: failureByType.map((f) => ({
-      eventType: f._id,
+      eventType: typeof f._id === 'object' && f._id !== null
+        ? (f._id.type || f._id.hour || JSON.stringify(f._id))
+        : (f._id || 'general'),
       count: f.failureCount,
     })),
     recentRuns,
