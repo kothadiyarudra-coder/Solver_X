@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -26,6 +26,7 @@ import {
   Cell,
 } from "recharts";
 import { api } from "../services/api";
+import { socket } from "../services/socket";
 
 const PIE_COLORS = ["#9333EA", "#3B82F6", "#EC4899", "#10B981", "#F59E0B"];
 
@@ -36,8 +37,8 @@ export default function Dashboard() {
   const [runs, setRuns] = useState([]);
   const [trendData, setTrendData] = useState([]);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [analyticsData, runsData, timeseries] = await Promise.all([
         api.getAnalytics(),
@@ -46,7 +47,7 @@ export default function Dashboard() {
       ]);
 
       setAnalytics(analyticsData);
-      setRuns(runsData);
+      setRuns(Array.isArray(runsData) ? runsData : []);
 
       // Group timeseries for execution trend chart
       const hourMap = {};
@@ -62,32 +63,37 @@ export default function Dashboard() {
     } catch (err) {
       console.error("[Dashboard] Load failed:", err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
 
     // Real-time live update handlers via Socket.IO
     const onLiveUpdate = () => {
       loadData(true); // silent refresh
     };
 
-    socket.on('run_started', onLiveUpdate);
-    socket.on('run_updated', onLiveUpdate);
-    socket.on('new_event', onLiveUpdate);
+    if (socket) {
+      socket.on('run_started', onLiveUpdate);
+      socket.on('run_updated', onLiveUpdate);
+      socket.on('new_event', onLiveUpdate);
+    }
 
     return () => {
-      socket.off('run_started', onLiveUpdate);
-      socket.off('run_updated', onLiveUpdate);
-      socket.off('new_event', onLiveUpdate);
+      if (socket) {
+        socket.off('run_started', onLiveUpdate);
+        socket.off('run_updated', onLiveUpdate);
+        socket.off('new_event', onLiveUpdate);
+      }
     };
   }, [loadData]);
 
-  const totalRuns = analytics?.totalRuns ?? runs.length;
-  const successfulRuns = analytics?.successfulRuns ?? runs.filter((r) => r.status === "success").length;
-  const failedRuns = analytics?.failedRuns ?? runs.filter((r) => r.status === "failed").length;
+  const safeRuns = Array.isArray(runs) ? runs : [];
+  const totalRuns = analytics?.totalRuns ?? safeRuns.length;
+  const successfulRuns = analytics?.successfulRuns ?? safeRuns.filter((r) => r.status === "success").length;
+  const failedRuns = analytics?.failedRuns ?? safeRuns.filter((r) => r.status === "failed").length;
   const successRate = analytics?.successRate ?? (totalRuns > 0 ? ((successfulRuns / totalRuns) * 100).toFixed(1) : 0);
   const avgDurationMs = analytics?.avgDurationMs ?? 0;
 
@@ -118,7 +124,7 @@ export default function Dashboard() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={loadData}
+            onClick={() => loadData(false)}
             title="Refresh dashboard"
             className="flex items-center gap-1.5 rounded-md border border-[#302345] bg-[#1E1531] px-3.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-purple-500/40 hover:text-white"
           >
@@ -364,14 +370,14 @@ export default function Dashboard() {
                     Loading runs from database...
                   </td>
                 </tr>
-              ) : runs.length === 0 ? (
+              ) : safeRuns.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-xs text-slate-500">
                     No runs recorded yet in MongoDB. Run `node sample-app/success.js` to see real runs here.
                   </td>
                 </tr>
               ) : (
-                runs.map((run) => (
+                safeRuns.map((run) => (
                   <tr
                     key={run.runId || run._id}
                     onClick={() => navigate(`/runs/${run.runId}`)}
