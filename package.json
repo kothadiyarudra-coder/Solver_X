@@ -9,6 +9,7 @@
     "dev:frontend": "npm --prefix frontend run dev",
     "dev": "concurrently -n \"backend,frontend\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "start": "npm --prefix backend start",
+    "build": "npm --prefix frontend run build",
     "build:frontend": "npm --prefix frontend run build",
     "demo": "node sample-app/run-all.js"
   },
