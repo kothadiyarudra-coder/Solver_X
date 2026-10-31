@@ -1,165 +1,407 @@
-import React, { useEffect, useState } from 'react';
-import { Activity, CheckCircle2, XCircle, Clock, ArrowUpRight, BarChart2 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import StatCard from '../components/StatCard';
-import RunTable from '../components/RunTable';
-import { api } from '../services/api';
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  LayoutDashboard,
+  Activity,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Sparkles,
+  ArrowUpRight,
+  TrendingUp,
+  RefreshCw,
+  Layers,
+  Inbox,
+} from "lucide-react";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
+import { api } from "../services/api";
+
+const PIE_COLORS = ["#9333EA", "#3B82F6", "#EC4899", "#10B981", "#F59E0B"];
 
 export default function Dashboard() {
-  const [analytics, setAnalytics] = useState(null);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [analytics, setAnalytics] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [trendData, setTrendData] = useState([]);
 
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      const data = await api.getAnalytics('demo-project');
-      setAnalytics(data);
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [analyticsData, runsData, timeseries] = await Promise.all([
+        api.getAnalytics(),
+        api.getRuns({ limit: 8 }),
+        api.getEventTimeseries(),
+      ]);
+
+      setAnalytics(analyticsData);
+      setRuns(runsData);
+
+      // Group timeseries for execution trend chart
+      const hourMap = {};
+      (timeseries || []).forEach((item) => {
+        const hour = item._id?.hour || "00:00";
+        if (!hourMap[hour]) hourMap[hour] = { time: hour, success: 0, failed: 0 };
+        const errors = item.errors || 0;
+        const total = item.count || 0;
+        hourMap[hour].failed += errors;
+        hourMap[hour].success += Math.max(0, total - errors);
+      });
+      setTrendData(Object.values(hourMap));
+    } catch (err) {
+      console.error("[Dashboard] Load failed:", err);
+    } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
     loadData();
   }, []);
 
-  if (loading || !analytics) {
-    return (
-      <div className="p-8 space-y-6">
-        <div className="h-8 w-48 bg-slate-800 rounded animate-pulse"></div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-28 bg-slate-800 rounded-xl animate-pulse"></div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const totalRuns = analytics?.totalRuns ?? runs.length;
+  const successfulRuns = analytics?.successfulRuns ?? runs.filter((r) => r.status === "success").length;
+  const failedRuns = analytics?.failedRuns ?? runs.filter((r) => r.status === "failed").length;
+  const successRate = analytics?.successRate ?? (totalRuns > 0 ? ((successfulRuns / totalRuns) * 100).toFixed(1) : 0);
+  const avgDurationMs = analytics?.avgDurationMs ?? 0;
 
-  const chartData = analytics.failuresByEventType || [];
+  const eventDistribution = (analytics?.failuresByEventType || []).map((f, i) => ({
+    name: f.eventType,
+    value: f.count,
+    color: PIE_COLORS[i % PIE_COLORS.length],
+  }));
 
   return (
-    <div className="p-8 space-y-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="min-h-screen w-full space-y-6">
+      {/* Top Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-[#302345] pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Project Overview</h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Real-time observability and evidence-based diagnosis for application workflows.
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+              <LayoutDashboard className="h-6 w-6 text-purple-400" />
+              Observability Overview
+            </h1>
+            <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+              Live MongoDB Data
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-slate-400">
+            Real-time telemetry, failure frequency, and execution diagnostics from MongoDB.
           </p>
         </div>
+
         <div className="flex items-center gap-3">
-          <span className="text-xs bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg font-mono">
-            Project: demo-project
-          </span>
+          <button
+            onClick={loadData}
+            title="Refresh dashboard"
+            className="flex items-center gap-1.5 rounded-md border border-[#302345] bg-[#1E1531] px-3.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-purple-500/40 hover:text-white"
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+          <button
+            onClick={() => navigate("/discover")}
+            className="flex items-center gap-1.5 rounded-md border border-[#302345] bg-[#241738] px-3.5 py-1.5 text-sm font-medium text-slate-300 transition hover:border-purple-500/40 hover:text-white"
+          >
+            <Layers size={15} />
+            Discover
+          </button>
+          <button
+            onClick={() => navigate("/diagnosis")}
+            className="flex items-center gap-1.5 rounded-md bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+          >
+            <Sparkles size={15} />
+            AI Diagnosis
+          </button>
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <StatCard
-          title="Total Runs"
-          value={analytics.totalRuns}
-          subtitle="Monitored execution workflows"
-          icon={Activity}
-          color="sky"
-        />
-        <StatCard
-          title="Success Rate"
-          value={`${analytics.successRate}%`}
-          subtitle={`${analytics.successfulRuns} successful`}
-          icon={CheckCircle2}
-          color="emerald"
-        />
-        <StatCard
-          title="Failed Runs"
-          value={analytics.failedRuns}
-          subtitle="Requires diagnosis or fixes"
-          icon={XCircle}
-          color="rose"
-        />
-        <StatCard
-          title="Avg Duration"
-          value={`${analytics.avgDurationMs}ms`}
-          subtitle="Average workflow execution time"
-          icon={Clock}
-          color="amber"
-        />
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Total Executions
+            </span>
+            <div className="rounded-lg bg-purple-500/10 p-2 text-purple-400">
+              <Activity size={18} />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-white">{totalRuns}</span>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Recorded across all project runs</p>
+        </div>
+
+        <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Success Rate
+            </span>
+            <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400">
+              <CheckCircle size={18} />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-emerald-400">{successRate}%</span>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">{successfulRuns} successful out of {totalRuns}</p>
+        </div>
+
+        <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Failed Runs
+            </span>
+            <div className="rounded-lg bg-rose-500/10 p-2 text-rose-400">
+              <XCircle size={18} />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-rose-400">{failedRuns}</span>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Requires investigation or diagnosis</p>
+        </div>
+
+        <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Avg Duration
+            </span>
+            <div className="rounded-lg bg-blue-500/10 p-2 text-blue-400">
+              <Clock size={18} />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-white">{avgDurationMs} ms</span>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Aggregated execution time</p>
+        </div>
       </div>
 
-      {/* Analytics Chart & Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-slate-800/40 border border-slate-800 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-6">
+      {/* Charts Grid */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Execution Trends Chart */}
+        <div className="lg:col-span-2 rounded-xl border border-[#302345] bg-[#1E1531] p-5">
+          <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                <BarChart2 className="w-4 h-4 text-sky-400" />
-                Failures by Event Type
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">Identifies recurrent failure hotspots in the pipeline</p>
+              <h2 className="text-base font-semibold text-white">Execution Volume & Errors</h2>
+              <p className="text-xs text-slate-400">Hourly events breakdown</p>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-sm bg-purple-500" /> Success
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" /> Failed
+              </span>
             </div>
           </div>
 
-          {chartData.length > 0 ? (
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                  <XAxis dataKey="eventType" stroke="#64748b" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#64748b" fontSize={11} tickLine={false} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#0f172a',
-                      borderColor: '#334155',
-                      borderRadius: '8px',
-                      color: '#f8fafc',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                    {chartData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={index === 0 ? '#f43f5e' : '#38bdf8'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+          {trendData.length === 0 ? (
+            <div className="flex flex-col h-[260px] items-center justify-center text-center text-slate-400">
+              <Inbox size={28} className="text-slate-500 mb-2" />
+              <p className="text-xs">No execution trends recorded yet.</p>
             </div>
           ) : (
-            <div className="h-64 flex items-center justify-center text-slate-500 text-sm">
-              No failure data recorded yet.
-            </div>
+            <ResponsiveContainer width="100%" height={260}>
+              <AreaChart data={trendData}>
+                <defs>
+                  <linearGradient id="purpleGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#9333EA" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="#9333EA" stopOpacity={0.05} />
+                  </linearGradient>
+                  <linearGradient id="roseGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#F43F5E" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="#F43F5E" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#302345" />
+                <XAxis dataKey="time" stroke="#6b7280" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#241738",
+                    borderColor: "#302345",
+                    borderRadius: "8px",
+                    color: "#f8fafc",
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="success"
+                  stroke="#A855F7"
+                  strokeWidth={2}
+                  fill="url(#purpleGrad)"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="failed"
+                  stroke="#F43F5E"
+                  strokeWidth={2}
+                  fill="url(#roseGrad)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           )}
         </div>
 
-        <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-6 flex flex-col justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-white">Quick Actions & Scenarios</h2>
-            <p className="text-xs text-slate-400 mt-1">Run test scenarios via SDK to simulate production events</p>
-
-            <div className="mt-4 space-y-3">
-              <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 text-xs">
-                <p className="font-semibold text-emerald-400">Scenario A: Normal Flow</p>
-                <code className="text-[11px] text-slate-400 block mt-1">npm run --prefix sample-app success</code>
-              </div>
-              <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 text-xs">
-                <p className="font-semibold text-rose-400">Scenario B: Failure Simulation</p>
-                <code className="text-[11px] text-slate-400 block mt-1">npm run --prefix sample-app failure</code>
-              </div>
-              <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 text-xs">
-                <p className="font-semibold text-sky-400">Scenario C: Duplicate Check</p>
-                <code className="text-[11px] text-slate-400 block mt-1">npm run --prefix sample-app duplicate</code>
-              </div>
-            </div>
+        {/* Event Breakdown */}
+        <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-white">Failures by Event Type</h2>
+            <p className="text-xs text-slate-400">From MongoDB aggregation pipeline</p>
           </div>
+
+          {eventDistribution.length === 0 ? (
+            <div className="flex flex-col h-[210px] items-center justify-center text-center text-slate-400">
+              <CheckCircle size={28} className="text-emerald-500 mb-2" />
+              <p className="text-xs font-medium text-slate-300">No failures recorded!</p>
+              <p className="text-[11px] text-slate-500 mt-1">All events succeeded.</p>
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={210}>
+                <PieChart>
+                  <Pie
+                    data={eventDistribution}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={80}
+                    paddingAngle={4}
+                    dataKey="value"
+                  >
+                    {eventDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#241738",
+                      borderColor: "#302345",
+                      borderRadius: "8px",
+                      color: "#f8fafc",
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+
+              <div className="mt-2 space-y-1.5">
+                {eventDistribution.map((item) => (
+                  <div key={item.name} className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-2 text-slate-300">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+                      {item.name}
+                    </span>
+                    <span className="font-semibold text-white">{item.value} failures</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Recent Runs Table */}
-      <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
+      {/* Recent Executions Table */}
+      <div className="rounded-xl border border-[#302345] bg-[#1E1531] overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[#302345] px-6 py-4">
           <div>
             <h2 className="text-base font-semibold text-white">Recent Execution Runs</h2>
-            <p className="text-xs text-slate-400">Latest activity tracked by DevTrace SDK</p>
+            <p className="text-xs text-slate-400">Live runs from MongoDB</p>
           </div>
+          <button
+            onClick={() => navigate("/runs")}
+            className="text-xs font-semibold text-purple-400 hover:text-purple-300 transition"
+          >
+            View All Runs →
+          </button>
         </div>
-        <RunTable runs={analytics.recentRuns || []} />
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[#241738] text-xs uppercase tracking-wider text-slate-400">
+              <tr>
+                <th className="px-6 py-3">Run ID</th>
+                <th className="px-6 py-3">Workflow Name</th>
+                <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3">Duration</th>
+                <th className="px-6 py-3">Events</th>
+                <th className="px-6 py-3">Started</th>
+                <th className="px-6 py-3 text-right">Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#302345]">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-xs text-slate-500">
+                    Loading runs from database...
+                  </td>
+                </tr>
+              ) : runs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-xs text-slate-500">
+                    No runs recorded yet in MongoDB. Run `node sample-app/success.js` to see real runs here.
+                  </td>
+                </tr>
+              ) : (
+                runs.map((run) => (
+                  <tr
+                    key={run.runId || run._id}
+                    onClick={() => navigate(`/runs/${run.runId}`)}
+                    className="hover:bg-[#281d3e] transition cursor-pointer"
+                  >
+                    <td className="whitespace-nowrap px-6 py-3.5 font-medium text-purple-400">
+                      {run.runId}
+                    </td>
+                    <td className="px-6 py-3.5 font-medium text-white">
+                      {run.name}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-3.5">
+                      {run.status === "success" ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
+                          <CheckCircle size={13} />
+                          Success
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-xs font-semibold text-rose-400 border border-rose-500/20">
+                          <XCircle size={13} />
+                          {run.status}
+                        </span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-3.5 text-slate-300">
+                      {run.durationMs ? `${run.durationMs}ms` : "0ms"}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-3.5 text-slate-400">
+                      {run.totalEvents || 0} events
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-3.5 text-slate-400">
+                      {run.startedAt ? new Date(run.startedAt).toLocaleString() : "N/A"}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-3.5 text-right">
+                      <span className="text-xs font-medium text-purple-400 hover:text-purple-300">
+                        View Trace →
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
-

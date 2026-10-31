@@ -7,16 +7,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          500: '#0284c7',
-          600: '#0369a1',
-          700: '#075985',
+        sentry: {
+          bg: '#1A1325',
+          sidebar: '#1B1124',
+          panel: '#1E1531',
+          input: '#241738',
+          border: '#302345',
+          accent: '#6C5FC7',
         },
       },
     },
   },
   plugins: [],
 }
-

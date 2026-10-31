@@ -1,32 +1,57 @@
-import React from 'react';
-import { Activity, ShieldCheck, Terminal } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { ChevronDown, LayoutGrid, Monitor, Calendar } from "lucide-react";
+import { api } from "../services/api";
 
 export default function Navbar() {
+  const [projects, setProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState("all");
+
+  useEffect(() => {
+    api.getProjects().then((data) => {
+      setProjects(data || []);
+    });
+  }, []);
+
+  const todayStr = new Date().toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
   return (
-    <header className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md px-6 flex items-center justify-between sticky top-0 z-40">
-      <div className="flex items-center space-x-3">
-        <div className="bg-sky-500/20 text-sky-400 p-2 rounded-lg border border-sky-500/30">
-          <Activity className="w-5 h-5" />
+    <header className="flex h-12 items-center justify-between border-b border-slate-700/50 bg-[#1B1124] px-4">
+      {/* Left controls */}
+      <div className="flex items-center gap-2">
+        {/* Real Projects dropdown */}
+        <div className="relative flex items-center">
+          <LayoutGrid className="absolute left-2.5 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+          <select
+            value={selectedProject}
+            onChange={(e) => setSelectedProject(e.target.value)}
+            className="appearance-none rounded-md border border-slate-700/70 bg-white/[0.04] py-1 pl-8 pr-7 text-xs text-slate-300 outline-none hover:bg-white/[0.07] cursor-pointer"
+          >
+            <option value="all" className="bg-[#1E1531]">All Projects ({projects.length})</option>
+            {projects.map((p) => (
+              <option key={p.projectId || p._id} value={p.projectId} className="bg-[#1E1531]">
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
         </div>
-        <div>
-          <span className="font-bold text-lg text-white tracking-tight">DevTrace AI</span>
-          <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
-            v1.0.0
-          </span>
+
+        {/* Environments */}
+        <div className="hidden sm:flex items-center gap-1.5 rounded-md border border-slate-700/70 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">
+          <Monitor className="h-3.5 w-3.5 text-slate-400" />
+          <span>Production</span>
         </div>
       </div>
 
-      <div className="flex items-center space-x-4">
-        <div className="flex items-center space-x-2 text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>System Healthy</span>
-        </div>
-        <div className="flex items-center space-x-1.5 text-xs text-slate-400 border border-slate-700/60 bg-slate-800/60 px-3 py-1.5 rounded-lg">
-          <Terminal className="w-3.5 h-3.5 text-slate-400" />
-          <span>Project: <strong className="text-slate-200">demo-project</strong></span>
-        </div>
+      {/* Right side — dynamic date */}
+      <div className="flex items-center gap-2 rounded-md border border-slate-700/70 bg-white/[0.04] px-3 py-1 text-xs text-slate-400">
+        <Calendar className="h-3.5 w-3.5 text-slate-500" />
+        <span>Today &ndash; {todayStr}</span>
       </div>
     </header>
   );
 }
-

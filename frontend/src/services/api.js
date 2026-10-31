@@ -4,149 +4,81 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api
 
 const apiClient = axios.create({
   baseURL: API_BASE,
-  timeout: 5000,
+  timeout: 10000,
 });
 
-// Mock Fallback Data (as required by Member 3 task 12)
-export const mockAnalytics = {
-  projectId: 'demo-project',
-  totalRuns: 24,
-  successfulRuns: 19,
-  failedRuns: 5,
-  runningRuns: 0,
-  successRate: 79.2,
-  avgDurationMs: 1420,
-  failuresByEventType: [
-    { eventType: 'database_query', count: 3 },
-    { eventType: 'llm_call', count: 1 },
-    { eventType: 'api_request', count: 1 },
-  ],
-  recentRuns: [
-    {
-      runId: 'run-success-01',
-      name: 'user-search-workflow',
-      projectId: 'demo-project',
-      status: 'success',
-      startedAt: new Date(Date.now() - 3600000).toISOString(),
-      completedAt: new Date(Date.now() - 3598500).toISOString(),
-      durationMs: 1500,
-      totalEvents: 4,
-      errorCount: 0,
-    },
-    {
-      runId: 'run-fail-02',
-      name: 'user-search-workflow',
-      projectId: 'demo-project',
-      status: 'failed',
-      startedAt: new Date(Date.now() - 1800000).toISOString(),
-      completedAt: new Date(Date.now() - 1794800).toISOString(),
-      durationMs: 5200,
-      totalEvents: 3,
-      errorCount: 1,
-    },
-  ],
-};
-
-export const mockRunEvents = {
-  'run-success-01': [
-    {
-      eventId: 'ev-101',
-      runId: 'run-success-01',
-      type: 'api_request',
-      status: 'success',
-      timestamp: new Date(Date.now() - 3600000).toISOString(),
-      durationMs: 45,
-      payload: { method: 'GET', endpoint: '/users/search?q=alice' },
-    },
-    {
-      eventId: 'ev-102',
-      runId: 'run-success-01',
-      type: 'database_query',
-      status: 'success',
-      timestamp: new Date(Date.now() - 3599900).toISOString(),
-      durationMs: 120,
-      payload: { operation: 'find', collection: 'users', matchedCount: 1 },
-    },
-    {
-      eventId: 'ev-103',
-      runId: 'run-success-01',
-      type: 'response_send',
-      status: 'success',
-      timestamp: new Date(Date.now() - 3598500).toISOString(),
-      durationMs: 15,
-      payload: { statusCode: 200, bytes: 412 },
-    },
-  ],
-  'run-fail-02': [
-    {
-      eventId: 'ev-201',
-      runId: 'run-fail-02',
-      type: 'api_request',
-      status: 'success',
-      timestamp: new Date(Date.now() - 1800000).toISOString(),
-      durationMs: 42,
-      payload: { method: 'GET', endpoint: '/users/search?q=alice' },
-    },
-    {
-      eventId: 'ev-202',
-      runId: 'run-fail-02',
-      type: 'database_query',
-      status: 'failed',
-      timestamp: new Date(Date.now() - 1794800).toISOString(),
-      durationMs: 5012,
-      payload: {
-        operation: 'find',
-        collection: 'users',
-        errorName: 'MongoServerSelectionError',
-        message: 'Server selection timed out after 5000 ms. Primary replica unavailable.',
-      },
-    },
-  ],
-};
-
-export const mockDiagnosis = {
-  summary: 'The run failed during the database query step due to a connection timeout.',
-  rootCause: 'The MongoDB server selection timed out after 5000 ms because the primary replica is unreachable or firewalled.',
-  evidence: [
-    {
-      eventId: 'ev-202',
-      observation: "Event type 'database_query' failed with MongoServerSelectionError after 5012ms.",
-    },
-  ],
-  suggestedChecks: [
-    'Verify the MongoDB Atlas cluster network access whitelist (IP access list).',
-    'Check that the database connection string and credentials in .env are correct.',
-    'Review MongoDB replica set health and cluster status.',
-  ],
-  confidence: 'high',
-};
-
-// Real API methods with seamless graceful fallback
 export const api = {
-  async getAnalytics(projectId = 'demo-project') {
+  // Projects
+  async getProjects() {
     try {
-      const res = await apiClient.get(`/projects/${projectId}/analytics`);
-      return res.data?.data;
-    } catch {
-      return mockAnalytics;
+      const res = await apiClient.get('/projects');
+      return res.data?.data || [];
+    } catch (err) {
+      console.warn('[API] getProjects error:', err.message);
+      return [];
     }
   },
 
-  async getRuns(projectId = 'demo-project') {
+  async createProject(projectData) {
+    const res = await apiClient.post('/projects', projectData);
+    return res.data?.data;
+  },
+
+  async deleteProject(projectId) {
+    const res = await apiClient.delete(`/projects/${projectId}`);
+    return res.data;
+  },
+
+  // Analytics & Aggregates
+  async getAnalytics(projectId = null) {
     try {
-      const res = await apiClient.get(`/projects/${projectId}/runs`);
+      const url = projectId && projectId !== 'all'
+        ? `/projects/${projectId}/analytics`
+        : '/projects/all/analytics';
+      const res = await apiClient.get(url);
+      return res.data?.data || null;
+    } catch (err) {
+      console.warn('[API] getAnalytics error:', err.message);
+      return null;
+    }
+  },
+
+  // Runs
+  async getRuns(params = {}) {
+    try {
+      const { projectId, status, limit = 50 } = params;
+      const res = await apiClient.get('/runs', {
+        params: {
+          ...(projectId && projectId !== 'all' ? { projectId } : {}),
+          ...(status && status !== 'all' ? { status } : {}),
+          limit,
+        },
+      });
       return res.data?.data?.runs || [];
-    } catch {
-      return mockAnalytics.recentRuns;
+    } catch (err) {
+      console.warn('[API] getRuns error:', err.message);
+      return [];
     }
   },
 
   async getRun(runId) {
     try {
       const res = await apiClient.get(`/runs/${runId}`);
-      return res.data?.data;
-    } catch {
-      return mockAnalytics.recentRuns.find((r) => r.runId === runId) || mockAnalytics.recentRuns[0];
+      return res.data?.data || null;
+    } catch (err) {
+      console.warn('[API] getRun error:', err.message);
+      return null;
+    }
+  },
+
+  // Events & Telemetry
+  async getEvents(params = {}) {
+    try {
+      const res = await apiClient.get('/events', { params });
+      return res.data?.data?.events || [];
+    } catch (err) {
+      console.warn('[API] getEvents error:', err.message);
+      return [];
     }
   },
 
@@ -154,47 +86,53 @@ export const api = {
     try {
       const res = await apiClient.get(`/runs/${runId}/events`);
       return res.data?.data || [];
-    } catch {
-      return mockRunEvents[runId] || mockRunEvents['run-fail-02'];
+    } catch (err) {
+      console.warn('[API] getRunEvents error:', err.message);
+      return [];
     }
   },
 
+  async getErrorEvents(params = {}) {
+    try {
+      const res = await apiClient.get('/events/errors', { params });
+      return res.data?.data || { errors: [], totalErrors: 0 };
+    } catch (err) {
+      console.warn('[API] getErrorEvents error:', err.message);
+      return { errors: [], totalErrors: 0 };
+    }
+  },
+
+  async getPerformanceStats(params = {}) {
+    try {
+      const res = await apiClient.get('/events/performance', { params });
+      return res.data?.data || { summary: { p50: 0, p75: 0, p95: 0, avg: 0, totalEvents: 0 }, transactions: [] };
+    } catch (err) {
+      console.warn('[API] getPerformanceStats error:', err.message);
+      return { summary: { p50: 0, p75: 0, p95: 0, avg: 0, totalEvents: 0 }, transactions: [] };
+    }
+  },
+
+  async getEventTimeseries(params = {}) {
+    try {
+      const res = await apiClient.get('/events/timeseries', { params });
+      return res.data?.data || [];
+    } catch (err) {
+      console.warn('[API] getEventTimeseries error:', err.message);
+      return [];
+    }
+  },
+
+  // Differential Comparison
   async compareRuns(runId1, runId2) {
-    try {
-      const res = await apiClient.get(`/compare/${runId1}/${runId2}`);
-      return res.data?.data;
-    } catch {
-      return {
-        run1: { runId: runId1, status: 'success', durationMs: 1500, totalEvents: 3 },
-        run2: { runId: runId2, status: 'failed', durationMs: 5200, totalEvents: 2 },
-        summary: { durationDifferenceMs: 3700, eventCountDifference: -1, hasFailureDivergence: true },
-        sequenceComparison: [
-          {
-            stepIndex: 1,
-            run1Event: { eventId: 'ev-101', type: 'api_request', status: 'success' },
-            run2Event: { eventId: 'ev-201', type: 'api_request', status: 'success' },
-            match: true,
-            difference: 'Identical event type and status',
-          },
-          {
-            stepIndex: 2,
-            run1Event: { eventId: 'ev-102', type: 'database_query', status: 'success' },
-            run2Event: { eventId: 'ev-202', type: 'database_query', status: 'failed' },
-            match: false,
-            difference: "Status diverged: 'success' vs 'failed'",
-          },
-        ],
-      };
-    }
+    const res = await apiClient.get(`/compare/${runId1}/${runId2}`);
+    return res.data?.data || null;
   },
 
+  // AI Diagnosis
   async getDiagnosis(runId) {
-    try {
-      const res = await apiClient.post(`/diagnosis/${runId}`);
-      return res.data?.data;
-    } catch {
-      return mockDiagnosis;
-    }
+    const res = await apiClient.post(`/diagnosis/${runId}`);
+    return res.data?.data || null;
   },
 };
 
+export default api;

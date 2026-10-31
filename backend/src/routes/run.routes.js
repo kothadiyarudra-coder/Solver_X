@@ -5,6 +5,7 @@ const eventController = require('../controllers/event.controller');
 
 // Run endpoints
 router.post('/', runController.createRun);
+router.get('/', runController.getAllRuns);
 router.patch('/:runId', runController.updateRun);
 router.get('/:runId', runController.getRun);
 router.get('/:runId/events', eventController.getRunEvents);
