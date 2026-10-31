@@ -44,6 +44,9 @@ const createProject = async (req, res, next) => {
       description: description?.trim() || '',
     });
 
+    const io = req.app.get('io');
+    if (io) io.emit('project_created', project);
+
     return res.status(201).json({
       success: true,
       data: project,
@@ -116,6 +119,9 @@ const deleteProject = async (req, res, next) => {
     await Run.deleteMany({ projectId });
     await Event.deleteMany({ projectId });
 
+    const io = req.app.get('io');
+    if (io) io.emit('project_deleted', projectId);
+
     return res.json({
       success: true,
       message: `Project '${projectId}' and associated runs/events deleted successfully`,
@@ -128,5 +134,6 @@ const deleteProject = async (req, res, next) => {
 module.exports = {
   createProject,
   getProjects,
+  getProject,
   deleteProject,
 };

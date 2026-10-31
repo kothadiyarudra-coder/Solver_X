@@ -1,5 +1,5 @@
 const path = require('path');
-// Load .env from project root or backend folder
+// Load .env from project root
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 require('dotenv').config();
@@ -26,7 +26,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST', 'PATCH'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
   },
 });
 

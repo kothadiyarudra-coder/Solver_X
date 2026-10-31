@@ -4,11 +4,7 @@ const mongoose = require('mongoose');
  * Database Connection — README Section 7
  *
  * Connects to MongoDB (Atlas or Local) and synchronizes all schema indexes.
- * After connection, runs syncIndexes() on all three collections to ensure:
- *   - eventId unique index exists on events
- *   - { projectId, runId, timestamp } compound index exists on events
- *   - { projectId, startedAt } compound index exists on runs
- *   - projectId unique index exists on projects
+ * After connection, runs syncIndexes() on all registered collections.
  */
 const connectDB = async () => {
   const uri = process.env.MONGODB_URI?.trim();
@@ -38,7 +34,6 @@ const connectDB = async () => {
 
 /**
  * Synchronize indexes for all registered models.
- * This creates any missing indexes and removes indexes no longer defined in the schema.
  */
 async function syncAllIndexes() {
   try {
@@ -47,7 +42,9 @@ async function syncAllIndexes() {
       const Model = mongoose.model(name);
       await Model.syncIndexes();
     }
-    console.log(`[Database] ✓ Indexes synced for: ${modelNames.join(', ')}`);
+    if (modelNames.length > 0) {
+      console.log(`[Database] ✓ Indexes synced for: ${modelNames.join(', ')}`);
+    }
   } catch (error) {
     console.warn(`[Database Warning] Index sync failed: ${error.message}`);
   }

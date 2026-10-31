@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Folder, Plus, Trash2, RefreshCw, Layers, Inbox } from "lucide-react";
 import { api } from "../services/api";
+import { socket } from "../services/socket";
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -25,6 +26,18 @@ export default function Projects() {
 
   useEffect(() => {
     fetchProjects();
+
+    const onProjectChange = () => {
+      fetchProjects();
+    };
+
+    socket.on('project_created', onProjectChange);
+    socket.on('project_deleted', onProjectChange);
+
+    return () => {
+      socket.off('project_created', onProjectChange);
+      socket.off('project_deleted', onProjectChange);
+    };
   }, []);
 
   const addProject = async (e) => {
@@ -40,7 +53,7 @@ export default function Projects() {
         description: description.trim(),
       });
       if (created) {
-        setProjects((prev) => [created, ...prev]);
+        setProjects((prev) => [created, ...prev.filter(p => (p.projectId || p._id) !== slug)]);
         setName("");
         setProjectId("");
         setDescription("");
