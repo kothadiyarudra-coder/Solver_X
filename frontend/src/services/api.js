@@ -83,6 +83,21 @@ export const api = {
     }
   },
 
+  async createRun(runData) {
+    const res = await apiClient.post('/runs', runData);
+    return res.data?.data;
+  },
+
+  async createEvent(eventData) {
+    const res = await apiClient.post('/events', eventData);
+    return res.data?.data;
+  },
+
+  async createBatchEvents(events) {
+    const res = await apiClient.post('/events/batch', { events });
+    return res.data?.data;
+  },
+
   // Events & Telemetry
   async getEvents(params = {}) {
     try {

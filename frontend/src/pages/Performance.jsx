@@ -13,6 +13,13 @@ import {
   Cpu,
   RefreshCw,
   Inbox,
+  Bug,
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  FileCode,
+  ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -37,6 +44,7 @@ export default function Performance() {
   const [perfSummary, setPerfSummary] = useState({ p50: 0, p75: 0, p95: 0, avg: 0, totalEvents: 0 });
   const [transactions, setTransactions] = useState([]);
   const [latencyData, setLatencyData] = useState([]);
+  const [bugIssues, setBugIssues] = useState([]);
 
   const loadPerformance = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -52,37 +60,99 @@ export default function Performance() {
       }
 
       if (perfData.timeline && perfData.timeline.length > 0) {
-        setLatencyData(perfData.timeline);
+        // Format timeline points using browser's real local time
+        const localTimeline = perfData.timeline.map((point) => {
+          const d = point.timestamp ? new Date(point.timestamp) : null;
+          const timeLabel = d
+            ? `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
+            : point.time;
+          return {
+            ...point,
+            time: timeLabel,
+          };
+        });
+        setLatencyData(localTimeline);
       } else {
-        // Fallback calculation with granular minutes
-        const eventsData = await api.getEvents({ projectId: pId, limit: 200 });
+        // Real-time fallback sliding window leading up to current real time
+        const now = Date.now();
         const stepMin = interval === "1m" ? 1 : interval === "15m" ? 15 : interval === "1h" ? 60 : 5;
         const stepMs = stepMin * 60 * 1000;
-        const buckets = {};
+        const endAligned = Math.ceil(now / stepMs) * stepMs;
+        const startAligned = endAligned - 7 * stepMs;
+        const buckets = new Map();
 
+        for (let t = startAligned; t <= endAligned; t += stepMs) {
+          const d = new Date(t);
+          const timeStr = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+          buckets.set(t, { time: timeStr, durations: [], errors: 0 });
+        }
+
+        const eventsData = await api.getEvents({ projectId: pId, limit: 200 });
         (eventsData || []).forEach((ev) => {
           const date = ev.timestamp ? new Date(ev.timestamp) : new Date();
           const bucketTime = Math.floor(date.getTime() / stepMs) * stepMs;
-          const d = new Date(bucketTime);
-          const timeStr = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-          if (!buckets[timeStr]) buckets[timeStr] = { durations: [], errors: 0 };
-          buckets[timeStr].durations.push(ev.durationMs || 0);
-          if (ev.status === "failed") buckets[timeStr].errors++;
+          const b = buckets.get(bucketTime);
+          if (b) {
+            b.durations.push(ev.durationMs || 0);
+            if (ev.status === "failed") b.errors++;
+          }
         });
 
-        const latencyPoints = Object.entries(buckets).map(([timeStr, b]) => {
+        const latencyPoints = Array.from(buckets.values()).map((b) => {
           b.durations.sort((a, b) => a - b);
           const count = b.durations.length;
           return {
-            time: timeStr,
-            p50: b.durations[Math.floor(count * 0.5)] || 0,
-            p75: b.durations[Math.floor(count * 0.75)] || 0,
-            p95: b.durations[Math.floor(count * 0.95)] || 0,
+            time: b.time,
+            p50: count > 0 ? b.durations[Math.floor(count * 0.5)] : 0,
+            p75: count > 0 ? b.durations[Math.floor(count * 0.75)] : 0,
+            p95: count > 0 ? b.durations[Math.floor(count * 0.95)] : 0,
             errors: b.errors || 0,
           };
         });
 
         setLatencyData(latencyPoints);
+      }
+
+      // Fetch and synthesize real Bug Issues for selected project
+      try {
+        const errorData = await api.getErrorEvents({ projectId: pId });
+        const rawErrors = errorData.errors || [];
+        const runtimeBugs = rawErrors.map((err, idx) => ({
+          id: `ERR-${100 + idx}`,
+          title: typeof err.title === "object" ? (err.title.hour ? `${err.title.hour}: ${err.title.type || "error"}` : JSON.stringify(err.title)) : String(err.title || "Runtime Error"),
+          severity: err.count > 5 ? "fatal" : "error",
+          source: "runtime",
+          culprit: err.sampleEvent?.payload?.endpoint || err.sampleEvent?.payload?.operation || err.types?.[0] || "Server Execution",
+          count: err.count || 1,
+          file: err.sampleEvent?.payload?.file || null,
+          lastSeen: err.lastSeen ? new Date(err.lastSeen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recently",
+          description: err.sampleEvent?.payload?.message || err.sampleEvent?.payload?.error || "Runtime exception intercepted during trace execution.",
+          suggestedFix: err.sampleEvent?.payload?.suggestedFix || null,
+        }));
+
+        const codeAuditBugs = (selectedProjectObj?.codeAnalysis?.issues || []).map((iss, idx) => ({
+          id: `AUDIT-${100 + idx}`,
+          title: iss.title || "Code Defect",
+          severity: iss.severity || "error",
+          source: "code_audit",
+          culprit: iss.file ? `${iss.file}${iss.line ? `:${iss.line}` : ""}` : "Static Code Vector",
+          count: 1,
+          file: iss.file || null,
+          lastSeen: "Diagnosed",
+          description: iss.description || "Identified during AI codebase analysis.",
+          suggestedFix: iss.suggestedFix || null,
+        }));
+
+        const combinedBugs = [...runtimeBugs];
+        codeAuditBugs.forEach((ab) => {
+          if (!combinedBugs.some((b) => b.title.toLowerCase() === ab.title.toLowerCase())) {
+            combinedBugs.push(ab);
+          }
+        });
+
+        setBugIssues(combinedBugs);
+      } catch (err) {
+        console.warn("[Performance] Failed to load bug issues:", err);
       }
     } catch (err) {
       console.error("[Performance] Load failed:", err);
@@ -170,7 +240,7 @@ export default function Performance() {
           </div>
 
           <button
-            onClick={loadPerformance}
+            onClick={() => loadPerformance(false)}
             className="flex items-center gap-1.5 rounded-md border border-[#302345] bg-[#1E1531] px-3.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-purple-500/40 hover:text-white"
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
@@ -226,6 +296,109 @@ export default function Performance() {
           </div>
           <p className="mt-2 text-xs text-slate-500">Ingested and indexed in MongoDB</p>
         </div>
+      </div>
+
+      {/* Bug Issues Section Below Stats */}
+      <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-5 shadow-sm space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-[#302345]/60 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Bug className="h-5 w-5 text-rose-400" />
+              <h2 className="text-base font-semibold text-white">
+                Bug & Error Issues
+              </h2>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  bugIssues.length > 0
+                    ? "bg-rose-500/10 border border-rose-500/30 text-rose-400"
+                    : "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400"
+                }`}
+              >
+                {bugIssues.length} {bugIssues.length === 1 ? "Active Issue" : "Active Issues"}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Active exceptions and code defects affecting reliability for{" "}
+              <span className="text-slate-300 font-medium">
+                {selectedProjectObj?.name || selectedProject}
+              </span>
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/issues")}
+              className="flex items-center gap-1 text-xs font-medium text-purple-400 hover:text-purple-300 transition"
+            >
+              <span>View Full Issues Tracker</span>
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Bug Issue Cards */}
+        {bugIssues.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-6 text-center text-slate-400">
+            <CheckCircle2 size={30} className="text-emerald-400 mb-2" />
+            <p className="text-xs font-semibold text-white">No Active Bug Issues</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              All monitored transactions and code paths are healthy with zero crashes.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {bugIssues.map((bug) => (
+              <div
+                key={bug.id}
+                onClick={() => navigate("/issues")}
+                className="flex flex-col justify-between rounded-lg border border-slate-700/60 bg-[#241738]/50 p-4 hover:border-purple-500/50 hover:bg-[#281a40] transition cursor-pointer group"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-1 mb-2">
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wide ${
+                        bug.severity === "fatal" || bug.severity === "critical"
+                          ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                          : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      }`}
+                    >
+                      {bug.severity}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {bug.source === "code_audit" ? "Code Audit" : `${bug.count} event${bug.count > 1 ? "s" : ""}`}
+                    </span>
+                  </div>
+
+                  <h3 className="text-xs font-bold text-white group-hover:text-purple-300 transition line-clamp-2 leading-snug">
+                    {bug.title}
+                  </h3>
+
+                  {bug.culprit && (
+                    <div className="mt-1.5 flex items-center gap-1 text-[11px] text-slate-400 font-mono truncate">
+                      <FileCode size={11} className="text-slate-500 shrink-0" />
+                      <span className="truncate">{bug.culprit}</span>
+                    </div>
+                  )}
+
+                  <p className="mt-2 text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                    {bug.description}
+                  </p>
+                </div>
+
+                {bug.suggestedFix && (
+                  <div className="mt-3 pt-2.5 border-t border-slate-700/40">
+                    <div className="text-[10px] font-semibold text-purple-400 uppercase tracking-wide mb-1">
+                      AI Suggested Fix:
+                    </div>
+                    <p className="text-[11px] text-purple-200/90 font-mono line-clamp-2 bg-purple-950/40 p-1.5 rounded border border-purple-500/20">
+                      {bug.suggestedFix}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Latency & Error Timeline Chart */}

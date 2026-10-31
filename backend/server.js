@@ -57,7 +57,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    service: 'DevTrace AI Backend',
+    service: 'Solver_X Backend',
   });
 });
 
@@ -68,7 +68,7 @@ const PORT = process.env.PORT || 5000;
 
 connectDB().then(() => {
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
+    console.log(`[Solver_X Server] Listening on http://localhost:${PORT}`);
   });
 });
 

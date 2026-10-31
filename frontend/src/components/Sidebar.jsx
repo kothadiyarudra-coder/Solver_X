@@ -7,12 +7,9 @@ import {
   Compass,
   LayoutDashboard,
   BrainCircuit,
-  Activity,
-  BarChart3,
   CircleHelp,
   Settings,
   ChevronLeft,
-  Hexagon,
 } from "lucide-react";
 
 const mainNavItems = [
@@ -23,11 +20,6 @@ const mainNavItems = [
   { label: "Discover", to: "/discover", icon: Compass },
   { label: "Dashboards", to: "/dashboard", icon: LayoutDashboard },
   { label: "AI Diagnosis", to: "/diagnosis", icon: BrainCircuit },
-];
-
-const bottomNavItems = [
-  { label: "Activity", to: "/activity", icon: Activity },
-  { label: "Stats", to: "/stats", icon: BarChart3 },
 ];
 
 const navLinkClasses = ({ isActive }) =>
@@ -44,13 +36,23 @@ export default function Sidebar() {
       {/* Brand / Identity */}
       <div className="flex flex-col gap-1 px-4 py-5">
         <div className="flex items-center gap-2.5">
-          <Hexagon className="h-7 w-7 text-purple-400" strokeWidth={1.8} />
-          <span className="text-base font-semibold tracking-wide text-slate-100">
-            DevTrace AI
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 via-indigo-600 to-sky-500 shadow-md shadow-purple-950/40 p-1">
+            <svg viewBox="0 0 32 32" fill="none" className="h-5 w-5 text-white" stroke="currentColor">
+              <path
+                d="M7 6L25 26M25 6L7 26"
+                strokeWidth="3.5"
+                strokeLinecap="round"
+                stroke="white"
+              />
+              <circle cx="16" cy="16" r="3" fill="#38BDF8" />
+            </svg>
+          </div>
+          <span className="text-lg font-extrabold tracking-wide text-white">
+            Solver<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-300">_X</span>
           </span>
         </div>
-        <span className="mt-1 truncate pl-[38px] text-xs text-slate-500">
-          developer@devtrace.ai
+        <span className="mt-0.5 truncate pl-[42px] text-[11px] text-slate-400 font-mono">
+          app.solver-x.ai
         </span>
       </div>
 
@@ -60,21 +62,6 @@ export default function Sidebar() {
           {mainNavItems.map(({ label, to, icon: Icon, end }) => (
             <li key={to}>
               <NavLink to={to} end={end} className={navLinkClasses}>
-                <Icon className="h-[18px] w-[18px] shrink-0" />
-                {label}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-
-        {/* Divider */}
-        <div className="mx-4 my-3 border-t border-slate-700/60" />
-
-        {/* Secondary navigation */}
-        <ul className="space-y-0.5">
-          {bottomNavItems.map(({ label, to, icon: Icon }) => (
-            <li key={label}>
-              <NavLink to={to} className={navLinkClasses}>
                 <Icon className="h-[18px] w-[18px] shrink-0" />
                 {label}
               </NavLink>
