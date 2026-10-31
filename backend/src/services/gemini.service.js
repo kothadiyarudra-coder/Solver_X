@@ -713,7 +713,7 @@ async function analyzeCodebase(projectId, options = {}) {
   try {
     const fileSummaries = filesToAnalyze.slice(0, 25).map((f) => ({
       path: f.path || f.name,
-      snippet: (f.content || '').slice(0, 3500),
+      snippet: (f.content || '').slice(0, 35000),
     }));
 
     const systemPrompt = `You are a senior principal software engineer and static analysis auditor.
