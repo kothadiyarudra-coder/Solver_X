@@ -4,32 +4,53 @@ const Event = require('../models/Event');
 /**
  * Start/Create a new run
  * POST /api/runs
+ *
+ * Body: { projectId, name, runId? }
+ * Response: 201 Created
  */
 const createRun = async (req, res, next) => {
   try {
     const { projectId, runId, name } = req.body;
 
-    if (!projectId || !name) {
+    // ---------- Validate required fields ----------
+    const missing = [];
+    if (!projectId || !projectId.trim()) missing.push('projectId');
+    if (!name || !name.trim()) missing.push('name');
+
+    if (missing.length > 0) {
       return res.status(400).json({
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'projectId and name are required',
+          message: `${missing.join(' and ')} ${missing.length > 1 ? 'are' : 'is'} required`,
         },
       });
     }
 
-    const runIdentifier = runId || `run-${Date.now().toString(36)}`;
+    // Auto-generate runId if not provided by SDK
+    const runIdentifier = (runId && runId.trim()) || `run-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+    // ---------- Check for duplicate runId ----------
+    const existing = await Run.findOne({ runId: runIdentifier });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'DUPLICATE_RUN',
+          message: `Run '${runIdentifier}' already exists.`,
+        },
+      });
+    }
 
     const run = await Run.create({
-      projectId,
+      projectId: projectId.trim(),
       runId: runIdentifier,
-      name,
+      name: name.trim(),
       status: 'running',
       startedAt: new Date(),
     });
 
-    // Notify connected clients via Socket.IO if available
+    // Notify connected dashboard clients via Socket.IO
     const io = req.app.get('io');
     if (io) io.emit('run_started', run);
 
@@ -46,6 +67,9 @@ const createRun = async (req, res, next) => {
 /**
  * Update/Finish a run
  * PATCH /api/runs/:runId
+ *
+ * Body: { status, completedAt? }
+ * Response: 200 OK
  */
 const updateRun = async (req, res, next) => {
   try {
@@ -58,20 +82,35 @@ const updateRun = async (req, res, next) => {
         success: false,
         error: {
           code: 'RUN_NOT_FOUND',
-          message: `Run with ID '${runId}' not found.`,
+          message: `Run '${runId}' not found.`,
         },
       });
     }
 
-    if (status) run.status = status;
+    // ---------- Validate status enum if provided ----------
+    if (status) {
+      const validStatuses = ['pending', 'running', 'success', 'failed'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `Invalid status '${status}'. Must be one of: ${validStatuses.join(', ')}`,
+          },
+        });
+      }
+      run.status = status;
+    }
+
+    // ---------- Calculate duration ----------
     const completionTime = completedAt ? new Date(completedAt) : new Date();
     run.completedAt = completionTime;
 
     if (run.startedAt) {
-      run.durationMs = completionTime.getTime() - new Date(run.startedAt).getTime();
+      run.durationMs = Math.max(0, completionTime.getTime() - new Date(run.startedAt).getTime());
     }
 
-    // Refresh total events and error count
+    // ---------- Refresh event counts from DB ----------
     const [totalEvents, errorCount] = await Promise.all([
       Event.countDocuments({ runId }),
       Event.countDocuments({ runId, status: 'failed' }),
@@ -82,6 +121,7 @@ const updateRun = async (req, res, next) => {
 
     await run.save();
 
+    // Notify dashboard
     const io = req.app.get('io');
     if (io) io.emit('run_updated', run);
 
@@ -98,6 +138,8 @@ const updateRun = async (req, res, next) => {
 /**
  * Get details for a single run
  * GET /api/runs/:runId
+ *
+ * Response: 200 OK
  */
 const getRun = async (req, res, next) => {
   try {
@@ -109,7 +151,7 @@ const getRun = async (req, res, next) => {
         success: false,
         error: {
           code: 'RUN_NOT_FOUND',
-          message: `Run with ID '${runId}' not found.`,
+          message: `Run '${runId}' not found.`,
         },
       });
     }
@@ -127,29 +169,41 @@ const getRun = async (req, res, next) => {
 /**
  * List runs for a project
  * GET /api/projects/:projectId/runs
+ *
+ * Query: ?status=failed&limit=50&skip=0
+ * Response: 200 OK
  */
 const getProjectRuns = async (req, res, next) => {
   try {
     const { projectId } = req.params;
     const { status, limit = 50, skip = 0 } = req.query;
 
+    // Clamp limit and skip to safe integers
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const safeSkip = Math.max(Number(skip) || 0, 0);
+
     const query = { projectId };
-    if (status) query.status = status;
+    if (status) {
+      const validStatuses = ['pending', 'running', 'success', 'failed'];
+      if (validStatuses.includes(status)) {
+        query.status = status;
+      }
+    }
 
-    const runs = await Run.find(query)
-      .sort({ startedAt: -1 })
-      .skip(Number(skip))
-      .limit(Number(limit));
-
-    const total = await Run.countDocuments(query);
+    const [runs, total] = await Promise.all([
+      Run.find(query).sort({ startedAt: -1 }).skip(safeSkip).limit(safeLimit),
+      Run.countDocuments(query),
+    ]);
 
     return res.json({
       success: true,
       data: {
         runs,
         total,
+        limit: safeLimit,
+        skip: safeSkip,
       },
-      message: 'Project runs retrieved successfully',
+      message: `${runs.length} run(s) retrieved for project '${projectId}'`,
     });
   } catch (error) {
     next(error);
@@ -195,4 +249,3 @@ module.exports = {
   getProjectRuns,
   getAllRuns,
 };
-
