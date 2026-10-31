@@ -1,3 +1,5 @@
+// Entrypoint for backend server
+module.exports = require('./src/server');
 const path = require('path');
 // Load .env from project root or backend folder
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });

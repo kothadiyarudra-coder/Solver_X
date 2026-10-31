@@ -1,166 +1,219 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, XCircle, Clock, Sparkles, GitCompare, Activity, Radio } from 'lucide-react';
-import EventTimeline from '../components/EventTimeline';
-import DiagnosisCard from '../components/DiagnosisCard';
-import { api } from '../services/api';
-import { socket } from '../services/socket';
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Database,
+  BrainCircuit,
+  Code,
+  FileText,
+  RefreshCw,
+  Sparkles,
+  Inbox,
+  Globe,
+} from "lucide-react";
+import { api } from "../services/api";
+
+const getEventIcon = (type) => {
+  switch (type) {
+    case "database_query":
+      return Database;
+    case "llm_call":
+    case "ai_execution":
+      return BrainCircuit;
+    case "api_request":
+    case "response_send":
+      return Globe;
+    default:
+      return Code;
+  }
+};
 
 export default function RunDetails() {
-  const { runId } = useParams();
+  const { id } = useParams();
+  const navigate = useNavigate();
   const [run, setRun] = useState(null);
   const [events, setEvents] = useState([]);
-  const [diagnosis, setDiagnosis] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [diagnosing, setDiagnosing] = useState(false);
-
-  const loadRunDetails = useCallback(async (isSilent = false) => {
-    if (!isSilent) setLoading(true);
-    const [runData, eventData] = await Promise.all([
-      api.getRun(runId),
-      api.getRunEvents(runId),
-    ]);
-    setRun(runData);
-    setEvents(eventData);
-    if (runData?.diagnosis) {
-      setDiagnosis(runData.diagnosis);
-    }
-    if (!isSilent) setLoading(false);
-  }, [runId]);
 
   useEffect(() => {
-    loadRunDetails();
-
-    // Listen to real-time events specific to this run
-    const onRunEvent = (newEvent) => {
-      setEvents((prev) => {
-        // Prevent duplicate event UI appending
-        if (prev.some((e) => e.eventId === newEvent.eventId)) return prev;
-        return [...prev, newEvent];
-      });
-      loadRunDetails(true); // update run counters
-    };
-
-    socket.on(`event_${runId}`, onRunEvent);
-    socket.on('run_updated', (updatedRun) => {
-      if (updatedRun.runId === runId) {
-        setRun(updatedRun);
+    const fetchRunData = async () => {
+      setLoading(true);
+      try {
+        const [runData, eventList] = await Promise.all([
+          api.getRun(id),
+          api.getRunEvents(id),
+        ]);
+        setRun(runData);
+        setEvents(eventList || []);
+      } catch (err) {
+        console.error("[RunDetails] Fetch failed:", err);
+      } finally {
+        setLoading(false);
       }
-    });
-
-    return () => {
-      socket.off(`event_${runId}`, onRunEvent);
-      socket.off('run_updated');
     };
-  }, [runId, loadRunDetails]);
 
-  const handleRunDiagnosis = async () => {
-    setDiagnosing(true);
-    const diag = await api.getDiagnosis(runId);
-    setDiagnosis(diag);
-    setDiagnosing(false);
-  };
+    fetchRunData();
+  }, [id]);
 
   if (loading) {
-    return <div className="p-8 text-center text-slate-500 animate-pulse">Loading run details...</div>;
+    return (
+      <div className="flex min-h-[400px] items-center justify-center text-slate-400 gap-2">
+        <RefreshCw className="animate-spin text-purple-400" size={20} />
+        <span>Loading run telemetry from database...</span>
+      </div>
+    );
   }
 
-  const isFailed = run?.status === 'failed';
+  if (!run) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => navigate("/runs")}
+          className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition"
+        >
+          <ArrowLeft size={17} />
+          Back to Run History
+        </button>
+        <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-12 text-center text-slate-400">
+          <p className="text-lg font-semibold text-slate-200">Run '{id}' not found</p>
+          <p className="text-xs text-slate-500 mt-1">This run identifier does not exist in MongoDB.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const isSuccess = run.status === "success";
 
   return (
-    <div className="p-8 space-y-6">
-      {/* Back button and title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <Link
-            to="/runs"
-            className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-2 transition"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Back to Run History
-          </Link>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white font-mono">{runId}</h1>
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
-                isFailed
-                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-              }`}
-            >
-              {isFailed ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-              {run?.status?.toUpperCase()}
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mt-1 font-sans">
-            Workflow: <strong className="text-slate-200">{run?.name}</strong> • Project: <strong className="text-slate-200">{run?.projectId}</strong>
-          </p>
-        </div>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => navigate("/runs")}
+          className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition"
+        >
+          <ArrowLeft size={17} />
+          Back to Run History
+        </button>
 
-        <div className="flex items-center gap-3">
-          <Link
-            to={`/compare?run1=run-6cd762a5&run2=${runId}`}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 text-xs font-medium transition"
-          >
-            <GitCompare className="w-4 h-4 text-sky-400" />
-            Compare Run
-          </Link>
-          <button
-            onClick={handleRunDiagnosis}
-            disabled={diagnosing}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-sky-500/20 transition disabled:opacity-50"
-          >
-            <Sparkles className="w-4 h-4" />
-            {diagnosing ? 'Diagnosing...' : 'Generate AI Diagnosis'}
-          </button>
-        </div>
+        <button
+          onClick={() => navigate("/diagnosis")}
+          className="flex items-center gap-1.5 rounded-md bg-purple-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-purple-500"
+        >
+          <Sparkles size={14} /> Run AI Diagnosis
+        </button>
       </div>
 
-      {/* Meta Stats bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800">
-          <p className="text-xs text-slate-500">Duration</p>
-          <p className="text-base font-bold text-white mt-1 font-mono">{run?.durationMs || 0}ms</p>
-        </div>
-        <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800">
-          <p className="text-xs text-slate-500">Total Events</p>
-          <p className="text-base font-bold text-white mt-1">{events.length}</p>
-        </div>
-        <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800">
-          <p className="text-xs text-slate-500">Failed Events</p>
-          <p className={`text-base font-bold mt-1 ${isFailed ? 'text-rose-400' : 'text-slate-300'}`}>
-            {events.filter((e) => e.status === 'failed').length}
-          </p>
-        </div>
-        <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800">
-          <p className="text-xs text-slate-500">Executed At</p>
-          <p className="text-xs font-mono text-slate-300 mt-1">
-            {run?.startedAt ? new Date(run.startedAt).toLocaleString() : '--'}
-          </p>
-        </div>
-      </div>
-
-      {/* AI Diagnosis Card (if available or diagnosing) */}
-      {(diagnosis || diagnosing) && (
-        <DiagnosisCard diagnosis={diagnosis} loading={diagnosing} />
-      )}
-
-      {/* Timeline Section */}
-      <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
+      {/* Run Header */}
+      <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-base font-semibold text-white flex items-center gap-2">
-              <Activity className="w-4 h-4 text-sky-400" />
-              Event Execution Timeline
-              <span className="flex items-center gap-1 text-[10px] font-normal text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                <Radio className="w-2.5 h-2.5 animate-pulse" /> Live Stream
-              </span>
-            </h2>
-            <p className="text-xs text-slate-400">Sequential events tracked by SDK with inputs and outputs</p>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              {run.runId}
+            </span>
+            <h1 className="mt-3 text-2xl font-bold text-white">{run.name}</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Project: <span className="text-purple-300 font-semibold">{run.projectId}</span> • Started: {new Date(run.startedAt).toLocaleString()}
+            </p>
           </div>
+
+          <span
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold capitalize ${
+              isSuccess
+                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                : "bg-red-500/10 text-red-400 border border-red-500/20"
+            }`}
+          >
+            {isSuccess ? <CheckCircle size={18} /> : <XCircle size={18} />}
+            {run.status}
+          </span>
         </div>
 
-        <EventTimeline events={events} />
+        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+          <div className="rounded-lg bg-[#241738] border border-[#302345] p-4">
+            <p className="text-xs text-slate-400">Total Duration</p>
+            <p className="mt-2 flex items-center gap-2 text-xl font-semibold text-white">
+              <Clock size={18} className="text-blue-400" />
+              {run.durationMs ? `${run.durationMs} ms` : "0 ms"}
+            </p>
+          </div>
+
+          <div className="rounded-lg bg-[#241738] border border-[#302345] p-4">
+            <p className="text-xs text-slate-400">Total Events Recorded</p>
+            <p className="mt-2 text-xl font-semibold text-purple-300">
+              {run.totalEvents || events.length}
+            </p>
+          </div>
+
+          <div className="rounded-lg bg-[#241738] border border-[#302345] p-4">
+            <p className="text-xs text-slate-400">Error Count</p>
+            <p className={`mt-2 text-xl font-semibold ${run.errorCount > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+              {run.errorCount || 0}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Execution Timeline from Real Events */}
+      <div className="rounded-xl border border-[#302345] bg-[#1E1531] p-6">
+        <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+          <FileText size={18} className="text-purple-400" /> Real Event Execution Timeline
+        </h2>
+
+        {events.length === 0 ? (
+          <div className="py-8 text-center text-slate-500 text-xs">
+            No events have been captured for this run yet.
+          </div>
+        ) : (
+          <div className="relative border-l-2 border-[#302345] ml-4 space-y-6 pl-6">
+            {events.map((event, idx) => {
+              const Icon = getEventIcon(event.type);
+              const eventSuccess = event.status === "success";
+
+              return (
+                <div key={event.eventId || idx} className="relative">
+                  <div
+                    className={`absolute -left-[35px] top-0 flex h-7 w-7 items-center justify-center rounded-full border ${
+                      eventSuccess
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+                        : "border-red-500 bg-red-500/20 text-red-400"
+                    }`}
+                  >
+                    <Icon size={14} />
+                  </div>
+
+                  <div className="rounded-lg bg-[#241738] border border-[#302345] p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-white text-sm">
+                          {event.type}
+                        </span>
+                        <span className="text-xs text-slate-500 font-mono">
+                          {event.eventId}
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Clock size={12} /> {event.durationMs ? `${event.durationMs}ms` : "0ms"}
+                      </span>
+                    </div>
+
+                    {event.payload && Object.keys(event.payload).length > 0 && (
+                      <pre className="mt-3 overflow-x-auto rounded bg-[#1A1325] p-3 text-xs text-slate-300 font-mono border border-slate-800">
+                        {JSON.stringify(event.payload, null, 2)}
+                      </pre>
+                    )}
+
+                    <div className="mt-2 text-[11px] text-slate-500">
+                      Timestamp: {new Date(event.timestamp).toISOString()}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -210,9 +210,42 @@ const getProjectRuns = async (req, res, next) => {
   }
 };
 
+/**
+ * List all runs across all projects or filtered
+ * GET /api/runs
+ */
+const getAllRuns = async (req, res, next) => {
+  try {
+    const { projectId, status, limit = 50, skip = 0 } = req.query;
+
+    const query = {};
+    if (projectId && projectId !== 'all') query.projectId = projectId;
+    if (status && status !== 'all') query.status = status;
+
+    const runs = await Run.find(query)
+      .sort({ startedAt: -1 })
+      .skip(Number(skip))
+      .limit(Number(limit));
+
+    const total = await Run.countDocuments(query);
+
+    return res.json({
+      success: true,
+      data: {
+        runs,
+        total,
+      },
+      message: 'Runs retrieved successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createRun,
   updateRun,
   getRun,
   getProjectRuns,
+  getAllRuns,
 };
