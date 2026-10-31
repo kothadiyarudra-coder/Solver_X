@@ -2,9 +2,11 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, Clock, CheckCircle, XCircle, Search, Eye, RefreshCw, Inbox } from "lucide-react";
 import { api } from "../services/api";
+import { useProject } from "../context/ProjectContext";
 
 export default function RunHistory() {
   const navigate = useNavigate();
+  const { selectedProject, selectedProjectObj } = useProject();
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [runs, setRuns] = useState([]);
@@ -13,7 +15,10 @@ export default function RunHistory() {
   const fetchRuns = async () => {
     setLoading(true);
     try {
-      const data = await api.getRuns({ status: filter !== "all" ? filter : undefined });
+      const data = await api.getRuns({
+        status: filter !== "all" ? filter : undefined,
+        projectId: selectedProject !== "all" ? selectedProject : undefined,
+      });
       setRuns(data || []);
     } catch (err) {
       console.error("[RunHistory] Failed to load runs:", err);
@@ -24,7 +29,7 @@ export default function RunHistory() {
 
   useEffect(() => {
     fetchRuns();
-  }, [filter]);
+  }, [filter, selectedProject]);
 
   const filteredRuns = runs.filter((run) => {
     const id = (run.runId || run.id || "").toLowerCase();

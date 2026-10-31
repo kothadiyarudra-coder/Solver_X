@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api';
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.PROD ? '/api' : 'http://localhost:5001/api');
 
 const apiClient = axios.create({
   baseURL: API_BASE,
@@ -27,6 +29,16 @@ export const api = {
   async deleteProject(projectId) {
     const res = await apiClient.delete(`/projects/${projectId}`);
     return res.data;
+  },
+
+  async analyzeProjectCode(projectId, data = {}) {
+    const res = await apiClient.post(`/projects/${projectId}/analyze`, data);
+    return res.data?.data;
+  },
+
+  async getProjectAnalysis(projectId) {
+    const res = await apiClient.get(`/projects/${projectId}/analysis`);
+    return res.data?.data;
   },
 
   // Analytics & Aggregates
@@ -115,10 +127,13 @@ export const api = {
   async getEventTimeseries(params = {}) {
     try {
       const res = await apiClient.get('/events/timeseries', { params });
-      return res.data?.data || [];
+      return {
+        points: Array.isArray(res.data?.data) ? res.data.data : [],
+        categories: res.data?.categories || [],
+      };
     } catch (err) {
       console.warn('[API] getEventTimeseries error:', err.message);
-      return [];
+      return { points: [], categories: [] };
     }
   },
 

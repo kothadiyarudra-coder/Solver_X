@@ -5,8 +5,14 @@ const mongoose = require('mongoose');
  *
  * Connects to MongoDB (Atlas or Local) and synchronizes all schema indexes.
  * After connection, runs syncIndexes() on all registered collections.
+ * Supports connection caching for serverless environments (Vercel).
  */
 const connectDB = async () => {
+  // If already connected, reuse existing connection (crucial for serverless environments)
+  if (mongoose.connection.readyState >= 1) {
+    return mongoose.connection;
+  }
+
   const uri = process.env.MONGODB_URI?.trim();
   const mongoUri = uri && uri.length > 0 ? uri : 'mongodb://localhost:27017/devtrace';
 

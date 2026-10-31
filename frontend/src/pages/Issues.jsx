@@ -13,9 +13,11 @@ import {
   Inbox,
 } from "lucide-react";
 import { api } from "../services/api";
+import { useProject } from "../context/ProjectContext";
 
 export default function Issues() {
   const navigate = useNavigate();
+  const { selectedProject, setSelectedProject, selectedProjectObj } = useProject();
   const [filterTab, setFilterTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [issues, setIssues] = useState([]);
@@ -24,7 +26,9 @@ export default function Issues() {
   const fetchIssues = async () => {
     setLoading(true);
     try {
-      const errorData = await api.getErrorEvents();
+      const errorData = await api.getErrorEvents({
+        projectId: selectedProject !== "all" ? selectedProject : undefined,
+      });
       const rawErrors = errorData.errors || [];
 
       // Transform raw errors into issue objects
@@ -39,6 +43,9 @@ export default function Issues() {
         lastSeen: err.lastSeen ? new Date(err.lastSeen).toLocaleTimeString() : "Just now",
         project: err.projectId || "devtrace",
         runId: err.sampleEvent?.runId,
+        source: err.sampleEvent?.payload?.source || 'runtime',
+        suggestedFix: err.sampleEvent?.payload?.suggestedFix || null,
+        file: err.sampleEvent?.payload?.file || null,
         tags: [
           `env:${err.projectId || 'production'}`,
           ...(err.types || []),
@@ -55,7 +62,7 @@ export default function Issues() {
 
   useEffect(() => {
     fetchIssues();
-  }, []);
+  }, [selectedProject]);
 
   const filteredIssues = issues.filter((issue) => {
     if (filterTab !== "all" && issue.status !== filterTab) {
@@ -117,6 +124,24 @@ export default function Issues() {
             <span className="rounded-full bg-rose-500/10 border border-rose-500/20 px-2.5 py-0.5 text-xs font-semibold text-rose-400">
               {issues.filter((i) => i.status === "unresolved").length} Active
             </span>
+
+            {selectedProject !== "all" ? (
+              <div className="flex items-center gap-1.5 ml-2">
+                <span className="rounded-md bg-purple-500/20 border border-purple-500/40 px-2.5 py-0.5 text-xs font-semibold text-purple-300">
+                  Project: {selectedProjectObj?.name || selectedProject}
+                </span>
+                <button
+                  onClick={() => setSelectedProject("all")}
+                  className="text-[11px] text-slate-400 hover:text-white underline"
+                >
+                  Clear filter
+                </button>
+              </div>
+            ) : (
+              <span className="rounded-md bg-slate-800 border border-slate-700 px-2 py-0.5 text-xs text-slate-400">
+                All Projects
+              </span>
+            )}
           </div>
           <p className="mt-1 text-sm text-slate-400">
             Grouped error occurrences and crash diagnostics from MongoDB events.
