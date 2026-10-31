@@ -132,14 +132,17 @@ export default function Projects() {
     setSubmitting(true);
     try {
       const slug = projectId.trim() || name.toLowerCase().replace(/[^a-z0-9]/g, "-");
+      const filesToSubmit = [...uploadedFiles];
+      const sourcePathTrimmed = sourcePath.trim();
+
       const created = await api.createProject({
         projectId: slug,
         name: name.trim(),
         description: description.trim(),
         sourceType,
-        sourcePath: sourcePath.trim(),
+        sourcePath: sourcePathTrimmed,
         softwareUrl: softwareUrl.trim(),
-        codeFiles: uploadedFiles,
+        codeFiles: filesToSubmit,
         autoAnalyze: autoAnalyze && sourceType !== "telemetry",
       });
 
@@ -160,7 +163,7 @@ export default function Projects() {
         if (autoAnalyze && sourceType !== "telemetry") {
           setAnalyzingProjectId(slug);
           // Trigger immediate analysis call in foreground to get instant feedback
-          runCodeDiagnosis(slug, { files: uploadedFiles, localPath: sourcePath.trim() });
+          runCodeDiagnosis(slug, { files: filesToSubmit, localPath: sourcePathTrimmed });
         }
       }
     } catch (err) {
@@ -187,7 +190,12 @@ export default function Projects() {
   const runCodeDiagnosis = async (targetProjectId, options = {}) => {
     setAnalyzingProjectId(targetProjectId);
     try {
-      const result = await api.analyzeProjectCode(targetProjectId, options);
+      const targetProject = projects.find((p) => (p.projectId || p._id) === targetProjectId);
+      const payloadOptions = {
+        files: options.files || targetProject?.codeFiles || [],
+        localPath: options.localPath || targetProject?.sourcePath || "",
+      };
+      const result = await api.analyzeProjectCode(targetProjectId, payloadOptions);
       if (result) {
         setProjects((prev) =>
           prev.map((p) => {
@@ -197,14 +205,14 @@ export default function Projects() {
             return p;
           })
         );
-        const updatedTarget = projects.find((p) => (p.projectId || p._id) === targetProjectId);
-        if (updatedTarget) {
-          setDiagnosisModalProject({ ...updatedTarget, codeAnalysis: result });
+        if (targetProject) {
+          setDiagnosisModalProject({ ...targetProject, codeAnalysis: result });
         }
       }
     } catch (err) {
       console.error("[Code Diagnosis] Analysis failed:", err);
-      alert("Failed to execute AI code diagnosis. Check console or backend logs.");
+      const errMsg = err.response?.data?.error?.message || err.message || "Failed to execute AI code diagnosis. Check console or backend logs.";
+      alert(errMsg);
     } finally {
       setAnalyzingProjectId(null);
     }
