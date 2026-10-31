@@ -11,6 +11,7 @@ const https = require('https');
 const devtrace = require('devtrace-sdk');
 
 const BASE_URL = process.env.DEVTRACE_API_URL || 'http://localhost:5001/api';
+const TARGET_PROJECT_ID = process.argv[2] || process.env.DEVTRACE_PROJECT_ID || 'demo-project';
 
 function sendJson(method, path, data) {
   return new Promise((resolve, reject) => {
@@ -63,7 +64,7 @@ async function runDemo() {
   // ──────────────────────────────────────────────────────────
   console.log('▶ [Scenario A] Executing Normal Workflow...');
   const successRun = await devtrace.startRun({
-    projectId: 'demo-project',
+    projectId: TARGET_PROJECT_ID,
     name: 'order-fulfillment-pipeline',
   });
   console.log(`  ✓ Started Run: ${successRun.runId}`);
@@ -93,7 +94,7 @@ async function runDemo() {
   // ──────────────────────────────────────────────────────────
   console.log('▶ [Scenario B] Executing Controlled Failure Workflow...');
   const failRun = await devtrace.startRun({
-    projectId: 'demo-project',
+    projectId: TARGET_PROJECT_ID,
     name: 'order-fulfillment-pipeline',
   });
   console.log(`  ✓ Started Run: ${failRun.runId}`);
@@ -137,7 +138,7 @@ async function runDemo() {
   const dupEventId = `dup-demo-${Date.now()}`;
   const dupPayload = {
     eventId: dupEventId,
-    projectId: 'demo-project',
+    projectId: TARGET_PROJECT_ID,
     runId: successRun.runId,
     type: 'audit_log',
     status: 'info',
