@@ -22,7 +22,7 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 10000,
     });
 
-    const dbName = conn.connection.db.databaseName;
+    const dbName = conn.connection.name || conn.connection.db?.databaseName || 'devtrace';
     console.log(`[Database] ✓ Connected to '${dbName}' on ${conn.connection.host}`);
 
     // Sync all model indexes with MongoDB to ensure they match schema definitions
