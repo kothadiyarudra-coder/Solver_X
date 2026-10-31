@@ -1,15 +1,25 @@
 const Project = require('../models/Project');
+const { analyzeCodebase } = require('../services/gemini.service');
 
 /**
  * Create a new Project
  * POST /api/projects
  *
- * Body: { projectId, name, description? }
+ * Body: { projectId, name, description?, sourceType?, sourcePath?, softwareUrl?, codeFiles?, autoAnalyze? }
  * Response: 201 Created
  */
 const createProject = async (req, res, next) => {
   try {
-    const { projectId, name, description } = req.body;
+    const {
+      projectId,
+      name,
+      description,
+      sourceType = 'telemetry',
+      sourcePath = '',
+      softwareUrl = '',
+      codeFiles = [],
+      autoAnalyze = false,
+    } = req.body;
 
     // ---------- Manual pre-validation (clear error before hitting DB) ----------
     const missing = [];
@@ -42,15 +52,37 @@ const createProject = async (req, res, next) => {
       projectId: projectId.trim(),
       name: name.trim(),
       description: description?.trim() || '',
+      sourceType,
+      sourcePath: sourcePath?.trim() || '',
+      softwareUrl: softwareUrl?.trim() || '',
+      codeFiles: Array.isArray(codeFiles) ? codeFiles.slice(0, 50) : [],
     });
 
+    // Auto-analyze with Gemini AI on creation:
+    // Analyzes the whole folder/URL/input, checks existing DB errors, and syncs any new errors into MongoDB
+    let initialAnalysis = null;
+    if (sourcePath || softwareUrl || (codeFiles && codeFiles.length > 0) || autoAnalyze) {
+      try {
+        initialAnalysis = await analyzeCodebase(project.projectId, { files: codeFiles, localPath: sourcePath });
+        project.codeAnalysis = initialAnalysis;
+      } catch (err) {
+        console.warn('[Auto-Analyze Error on Project Creation]:', err.message);
+      }
+    }
+
     const io = req.app.get('io');
-    if (io) io.emit('project_created', project);
+    if (io) {
+      io.emit('project_created', project);
+      if (initialAnalysis) {
+        io.emit('code_analyzed', { projectId: project.projectId, analysis: initialAnalysis });
+      }
+    }
 
     return res.status(201).json({
       success: true,
       data: project,
-      message: 'Project created successfully',
+      analysis: initialAnalysis,
+      message: 'Project created and codebase audited successfully with Gemini AI',
     });
   } catch (error) {
     next(error);
@@ -131,9 +163,64 @@ const deleteProject = async (req, res, next) => {
   }
 };
 
+/**
+ * Trigger AI Codebase Diagnosis & Performance / Issue audit
+ * POST /api/projects/:projectId/analyze
+ */
+const analyzeProjectCode = async (req, res, next) => {
+  try {
+    const { projectId } = req.params;
+    const { files, localPath } = req.body;
+
+    const analysis = await analyzeCodebase(projectId, { files, localPath });
+
+    const io = req.app.get('io');
+    if (io) io.emit('code_analyzed', { projectId, analysis });
+
+    return res.json({
+      success: true,
+      data: analysis,
+      message: 'Codebase diagnosis and performance audit completed',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get cached AI Codebase Diagnosis
+ * GET /api/projects/:projectId/analysis
+ */
+const getProjectCodeAnalysis = async (req, res, next) => {
+  try {
+    const { projectId } = req.params;
+    const project = await Project.findOne({ projectId });
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'PROJECT_NOT_FOUND',
+          message: `Project '${projectId}' not found.`,
+        },
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: project.codeAnalysis || null,
+      message: project.codeAnalysis ? 'Analysis retrieved' : 'No analysis available yet for this project',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createProject,
   getProjects,
   getProject,
   deleteProject,
+  analyzeProjectCode,
+  getProjectCodeAnalysis,
 };

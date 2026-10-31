@@ -41,7 +41,8 @@ io.on('connection', (socket) => {
 
 // Middlewares
 app.use(cors({ origin: '*' }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(morgan('dev'));
 
 // API Routes conforming to Section 6 of README
@@ -65,12 +66,9 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5000;
 
 // Connect Database and Start Server
-// In serverless environments (e.g. Vercel), server.listen is not called
-if (!process.env.VERCEL) {
-  connectDB().then(() => {
-    server.listen(PORT, '0.0.0.0', () => {
-      console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
-    });
+connectDB().then(() => {
+  server.listen(PORT, () => {
+    console.log(`[DevTrace Server] Listening on http://localhost:${PORT}`);
   });
 } else {
   connectDB();

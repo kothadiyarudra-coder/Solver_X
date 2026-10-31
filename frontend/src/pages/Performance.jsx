@@ -24,10 +24,13 @@ import {
   Tooltip,
 } from "recharts";
 import { api } from "../services/api";
+import { useProject } from "../context/ProjectContext";
 
 export default function Performance() {
   const navigate = useNavigate();
+  const { selectedProject, selectedProjectObj } = useProject();
   const [filterType, setFilterType] = useState("all");
+  const [interval, setInterval] = useState("5m");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [perfSummary, setPerfSummary] = useState({ p50: 0, p75: 0, p95: 0, avg: 0, totalEvents: 0 });
@@ -37,10 +40,8 @@ export default function Performance() {
   const loadPerformance = async () => {
     setLoading(true);
     try {
-      const [perfData, eventsData] = await Promise.all([
-        api.getPerformanceStats(),
-        api.getEvents({ limit: 100 }),
-      ]);
+      const pId = selectedProject !== "all" ? selectedProject : undefined;
+      const perfData = await api.getPerformanceStats({ projectId: pId, interval });
 
       if (perfData.summary) {
         setPerfSummary(perfData.summary);
@@ -49,27 +50,37 @@ export default function Performance() {
         setTransactions(perfData.transactions);
       }
 
-      // Compute hourly duration percentiles from real events
-      const hourBuckets = {};
-      (eventsData || []).forEach((ev) => {
-        const date = ev.timestamp ? new Date(ev.timestamp) : new Date();
-        const hour = `${date.getHours().toString().padStart(2, "0")}:00`;
-        if (!hourBuckets[hour]) hourBuckets[hour] = [];
-        hourBuckets[hour].push(ev.durationMs || 0);
-      });
+      if (perfData.timeline && perfData.timeline.length > 0) {
+        setLatencyData(perfData.timeline);
+      } else {
+        // Fallback calculation with granular minutes
+        const eventsData = await api.getEvents({ projectId: pId, limit: 200 });
+        const stepMin = interval === "1m" ? 1 : interval === "15m" ? 15 : interval === "1h" ? 60 : 5;
+        const stepMs = stepMin * 60 * 1000;
+        const buckets = {};
 
-      const latencyPoints = Object.entries(hourBuckets).map(([hour, durations]) => {
-        durations.sort((a, b) => a - b);
-        const count = durations.length;
-        return {
-          time: hour,
-          p50: durations[Math.floor(count * 0.5)] || 0,
-          p75: durations[Math.floor(count * 0.75)] || 0,
-          p95: durations[Math.floor(count * 0.95)] || 0,
-        };
-      });
+        (eventsData || []).forEach((ev) => {
+          const date = ev.timestamp ? new Date(ev.timestamp) : new Date();
+          const bucketTime = Math.floor(date.getTime() / stepMs) * stepMs;
+          const d = new Date(bucketTime);
+          const timeStr = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+          if (!buckets[timeStr]) buckets[timeStr] = [];
+          buckets[timeStr].push(ev.durationMs || 0);
+        });
 
-      setLatencyData(latencyPoints);
+        const latencyPoints = Object.entries(buckets).map(([timeStr, durations]) => {
+          durations.sort((a, b) => a - b);
+          const count = durations.length;
+          return {
+            time: timeStr,
+            p50: durations[Math.floor(count * 0.5)] || 0,
+            p75: durations[Math.floor(count * 0.75)] || 0,
+            p95: durations[Math.floor(count * 0.95)] || 0,
+          };
+        });
+
+        setLatencyData(latencyPoints);
+      }
     } catch (err) {
       console.error("[Performance] Load failed:", err);
     } finally {
@@ -79,7 +90,7 @@ export default function Performance() {
 
   useEffect(() => {
     loadPerformance();
-  }, []);
+  }, [interval, selectedProject]);
 
   const filteredTransactions = transactions.filter((tx) => {
     const matchesType =
@@ -115,6 +126,23 @@ export default function Performance() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Interval Selector */}
+          <div className="flex items-center bg-[#241738] rounded-lg p-0.5 border border-slate-700/60 text-[11px]">
+            {["1m", "5m", "15m", "1h"].map((intVal) => (
+              <button
+                key={intVal}
+                onClick={() => setInterval(intVal)}
+                className={`px-2 py-1 rounded-md transition font-mono ${
+                  interval === intVal
+                    ? "bg-purple-600 text-white font-semibold"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {intVal}
+              </button>
+            ))}
+          </div>
+
           <button
             onClick={loadPerformance}
             className="flex items-center gap-1.5 rounded-md border border-[#302345] bg-[#1E1531] px-3.5 py-1.5 text-xs font-medium text-slate-300 transition hover:border-purple-500/40 hover:text-white"

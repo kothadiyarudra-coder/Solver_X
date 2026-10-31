@@ -306,26 +306,82 @@ const getErrorEvents = async (req, res, next) => {
 /**
  * Latency percentiles and operation breakdown
  * GET /api/events/performance
+ * Supports: interval = '1m' | '5m' | '15m' | '1h'
  */
 const getPerformanceStats = async (req, res, next) => {
   try {
-    const { projectId } = req.query;
+    const { projectId, interval = '5m' } = req.query;
     const match = {};
     if (projectId && projectId !== 'all') match.projectId = projectId;
 
-    const durations = await Event.find(match, { durationMs: 1, type: 1, status: 1, 'payload.endpoint': 1, 'payload.operation': 1, runId: 1, projectId: 1 })
-      .sort({ durationMs: 1 })
+    const durations = await Event.find(match, { durationMs: 1, type: 1, status: 1, timestamp: 1, 'payload.endpoint': 1, 'payload.operation': 1, runId: 1, projectId: 1 })
+      .sort({ timestamp: 1 })
       .lean();
 
     const count = durations.length;
     let p50 = 0, p75 = 0, p95 = 0, avg = 0;
 
+    const sortedDurations = [...durations].sort((a, b) => (a.durationMs || 0) - (b.durationMs || 0));
+
     if (count > 0) {
-      const sum = durations.reduce((acc, cur) => acc + (cur.durationMs || 0), 0);
+      const sum = sortedDurations.reduce((acc, cur) => acc + (cur.durationMs || 0), 0);
       avg = Math.round(sum / count);
-      p50 = durations[Math.floor(count * 0.5)]?.durationMs || 0;
-      p75 = durations[Math.floor(count * 0.75)]?.durationMs || 0;
-      p95 = durations[Math.floor(count * 0.95)]?.durationMs || 0;
+      p50 = sortedDurations[Math.floor(count * 0.5)]?.durationMs || 0;
+      p75 = sortedDurations[Math.floor(count * 0.75)]?.durationMs || 0;
+      p95 = sortedDurations[Math.floor(count * 0.95)]?.durationMs || 0;
+    }
+
+    // Granular timeseries for duration percentiles
+    let stepMinutes = 5;
+    if (interval === '1m') stepMinutes = 1;
+    else if (interval === '5m') stepMinutes = 5;
+    else if (interval === '15m') stepMinutes = 15;
+    else if (interval === '1h') stepMinutes = 60;
+    const stepMs = stepMinutes * 60 * 1000;
+
+    let timeline = [];
+    if (count > 0) {
+      const firstTime = new Date(durations[0].timestamp).getTime();
+      const lastTime = new Date(durations[count - 1].timestamp).getTime();
+      const startAligned = Math.floor(firstTime / stepMs) * stepMs;
+      const minEnd = Math.max(lastTime, startAligned + 5 * stepMs);
+      const endAligned = Math.ceil(minEnd / stepMs) * stepMs;
+
+      const buckets = new Map();
+      for (let t = startAligned; t <= endAligned; t += stepMs) {
+        const d = new Date(t);
+        const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+        buckets.set(t, { time: timeStr, timestamp: t, durations: [] });
+      }
+
+      durations.forEach((e) => {
+        const evTime = new Date(e.timestamp).getTime();
+        const bTime = Math.floor(evTime / stepMs) * stepMs;
+        let b = buckets.get(bTime);
+        if (!b) {
+          const d = new Date(bTime);
+          const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+          b = { time: timeStr, timestamp: bTime, durations: [] };
+          buckets.set(bTime, b);
+        }
+        b.durations.push(e.durationMs || 0);
+      });
+
+      timeline = Array.from(buckets.entries())
+        .sort(([t1], [t2]) => t1 - t2)
+        .map(([_, b]) => {
+          b.durations.sort((a, b) => a - b);
+          const c = b.durations.length;
+          return {
+            time: b.time,
+            timestamp: b.timestamp,
+            count: c,
+            p50: c > 0 ? b.durations[Math.floor(c * 0.5)] : p50,
+            p75: c > 0 ? b.durations[Math.floor(c * 0.75)] : p75,
+            p95: c > 0 ? b.durations[Math.floor(c * 0.95)] : p95,
+            avg: c > 0 ? Math.round(b.durations.reduce((s, v) => s + v, 0) / c) : avg,
+          };
+        });
     }
 
     const operationAgg = await Event.aggregate([
@@ -363,6 +419,8 @@ const getPerformanceStats = async (req, res, next) => {
       success: true,
       data: {
         summary: { p50, p75, p95, avg, totalEvents: count },
+        timeline,
+        interval: `${stepMinutes}m`,
         transactions: operationAgg.map(op => ({
           name: op._id.name || op._id.type,
           type: op._id.type,
@@ -384,33 +442,99 @@ const getPerformanceStats = async (req, res, next) => {
 /**
  * Event timeseries bucketed for stacked charts
  * GET /api/events/timeseries
+ * Supports: interval = '1m' | '5m' | '15m' | '30m' | '1h'
  */
 const getEventTimeseries = async (req, res, next) => {
   try {
-    const { projectId } = req.query;
+    const { projectId, interval = '5m', limit = 1000 } = req.query;
     const match = {};
     if (projectId && projectId !== 'all') match.projectId = projectId;
 
-    const timeseries = await Event.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: {
-            hour: { $dateToString: { format: '%H:00', date: '$timestamp' } },
-            type: '$type',
-          },
-          count: { $sum: 1 },
-          errors: {
-            $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] }
-          }
-        }
-      },
-      { $sort: { '_id.hour': 1 } }
-    ]);
+    const events = await Event.find(match, { timestamp: 1, type: 1, status: 1, durationMs: 1 })
+      .sort({ timestamp: 1 })
+      .limit(Number(limit))
+      .lean();
+
+    if (events.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        categories: [],
+        message: 'No events found for timeseries',
+      });
+    }
+
+    // Determine interval step in minutes
+    let stepMinutes = 5;
+    if (interval === '1m') stepMinutes = 1;
+    else if (interval === '5m') stepMinutes = 5;
+    else if (interval === '15m') stepMinutes = 15;
+    else if (interval === '30m') stepMinutes = 30;
+    else if (interval === '1h') stepMinutes = 60;
+
+    const stepMs = stepMinutes * 60 * 1000;
+
+    // Collect all distinct types
+    const typesSet = new Set();
+    events.forEach((e) => {
+      if (e.type) typesSet.add(e.type);
+    });
+    const categories = Array.from(typesSet);
+
+    // Compute range and align to step
+    const firstTime = new Date(events[0].timestamp).getTime();
+    const lastTime = new Date(events[events.length - 1].timestamp).getTime();
+
+    const startAligned = Math.floor(firstTime / stepMs) * stepMs;
+    // Guarantee at least 6 points so Recharts renders a continuous curve
+    const minEnd = Math.max(lastTime, startAligned + 5 * stepMs);
+    const endAligned = Math.ceil(minEnd / stepMs) * stepMs;
+
+    const bucketMap = new Map();
+    for (let t = startAligned; t <= endAligned; t += stepMs) {
+      const d = new Date(t);
+      const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+      const initialTypes = {};
+      categories.forEach((cat) => {
+        initialTypes[cat] = 0;
+        initialTypes[`${cat}_errors`] = 0;
+      });
+      bucketMap.set(t, { time: timeStr, timestamp: t, ...initialTypes });
+    }
+
+    // Populate events into buckets
+    events.forEach((ev) => {
+      const evTime = new Date(ev.timestamp).getTime();
+      const bucketTime = Math.floor(evTime / stepMs) * stepMs;
+      let bucket = bucketMap.get(bucketTime);
+      if (!bucket) {
+        const d = new Date(bucketTime);
+        const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+        const initialTypes = {};
+        categories.forEach((cat) => {
+          initialTypes[cat] = 0;
+          initialTypes[`${cat}_errors`] = 0;
+        });
+        bucket = { time: timeStr, timestamp: bucketTime, ...initialTypes };
+        bucketMap.set(bucketTime, bucket);
+      }
+
+      const type = ev.type || 'general';
+      bucket[type] = (bucket[type] || 0) + 1;
+      if (ev.status === 'failed') {
+        bucket[`${type}_errors`] = (bucket[`${type}_errors`] || 0) + 1;
+      }
+    });
+
+    const result = Array.from(bucketMap.entries())
+      .sort(([t1], [t2]) => t1 - t2)
+      .map(([_, b]) => b);
 
     return res.json({
       success: true,
-      data: timeseries,
+      data: result,
+      categories,
+      interval: `${stepMinutes}m`,
       message: 'Event timeseries generated successfully',
     });
   } catch (error) {
